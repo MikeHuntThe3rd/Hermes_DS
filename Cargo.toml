@@ -4,3 +4,23 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+derive_macros = { path = "./derive_macros" }
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.7", features = ["fs", "cors"] }
+serde = { version = "1", features = ["derive"] }
+serde_jcs = "0.2.0"
+serde_json = "1.0.154"
+sqlx = { version = "0.9", features = ["postgres", "runtime-tokio", "uuid", "macros"] }
+jsonwebtoken = { version = "10", default-features = false, features = ["aws_lc_rs"] }
+uuid = { version = "1.26.1", features = ["v4", "v7", "serde"] }
+axum = { version = "0.8.9", features = ["macros", "multipart", "ws"] }
+axum-extra = { version = "0.12.6", features = ["typed-header"] }
+ed25519-dalek = { version = "3", features = ["pkcs8", "rand_core", "pem"] }
+x509-cert = { version = "0.3", features = ["builder"] }
+rand = { version = "0.10.3", features = ["chacha", "sys_rng"] }
+tls_codec = "0.5.0"
+fred = "10.1.0"
+base64 = "0.23.1"
+time = "0.3.55"
+der = { version = "0.8.3", features = ["std"] }
+dotenvy = "0.15.7"

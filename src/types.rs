@@ -1,7 +1,7 @@
 #![allow(warnings)]
 use std::sync::Arc;
 
-use crate::{certificates::intermediate_keys::Pki, db::*};
+use crate::db::*;
 use axum::http::StatusCode;
 use base64::engine::{GeneralPurpose, general_purpose::URL_SAFE_NO_PAD};
 use derive_macros::Bindable;
@@ -106,145 +106,24 @@ where
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
 #[ids = "id"]
-pub struct User {
-    pub id: Uuid,
-    pub prv: PrivilegeT,
-    pub home_ds: Uuid,
-    pub nickname: String,
-    pub username: String,
-    pub password: String,
-    pub changes: i64,
-    pub pfp: Option<String>,
-}
-
-#[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
-#[ids = "id"]
-pub struct Device {
-    pub id: Uuid,
-    pub user_id: Uuid,
-    pub name: String,
-    pub cert_der: Vec<u8>,
-    pub sig_pubkey: Vec<u8>,
-    pub cert_serial: Vec<u8>,
-    pub cert_not_after: i64,
-    pub key_id: String,
-    pub is_revoked: bool,
-}
-
-#[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
-#[ids = "seq"]
-pub struct Deletion {
-    pub seq: i64,
-    pub user_id: Uuid,
-    pub deleted_at: i64,
-    pub key_id: String,
-    pub signature: Vec<u8>,
-}
-
-#[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
-#[ids = "id"]
 pub struct Ds {
     pub id: Uuid,
     pub ep: String,
 }
 
-pub struct JwtSignerKey {
-    pub kid: Uuid,
-    pub kty: String,
-    pub usage: String,
-    pub crv: String,
-    pub alg: String,
-    pub x: String,
-    pub signer: SigningKey,
-}
-
 #[derive(Clone)]
 pub struct AppState {
-    pub secret_b_array: Arc<[u8; 32]>,
-    pub jwt_okp: Arc<JwtSignerKey>,
     pub pg_interface: DbInterface<DbPool<Postgres>>,
     pub kvs_client: Client,
-    pub pki: Pki,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct AuthClaims {
+pub struct DsTokenClaims {
     pub sub: Uuid,
-    pub jti: Uuid,
-    pub kid: Option<Uuid>,
-    pub signature: Option<String>,
-    pub rjti: Option<Uuid>,
-    pub iat: u64,
-    pub exp: u64,
-    pub tkn_type: TokenType,
-}
-
-impl FetchableSignature for AuthClaims {
-    fn fetch_mut_kid(&mut self) -> &mut Option<Uuid> {
-        return &mut self.kid;
-    }
-
-    fn fetch_mut_Signature(&mut self) -> &mut Option<String> {
-        return &mut self.signature;
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct DsClaims {
-    pub sub: Uuid,
+    pub device_id: Uuid,
     pub kid: Option<Uuid>,
     pub signature: Option<String>,
     pub aud: Uuid,
-    pub device_id: Uuid,
     pub iat: u64,
     pub exp: u64,
-}
-
-impl FetchableSignature for DsClaims {
-    fn fetch_mut_kid(&mut self) -> &mut Option<Uuid> {
-        return &mut self.kid;
-    }
-
-    fn fetch_mut_Signature(&mut self) -> &mut Option<String> {
-        return &mut self.signature;
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct PrivClaims {
-    pub priv_level: PrivilegeT,
-    pub kid: Option<Uuid>,
-    pub signature: Option<String>,
-    pub jti: Uuid,
-    pub iat: u64,
-    pub exp: u64,
-}
-
-impl FetchableSignature for PrivClaims {
-    fn fetch_mut_kid(&mut self) -> &mut Option<Uuid> {
-        return &mut self.kid;
-    }
-
-    fn fetch_mut_Signature(&mut self) -> &mut Option<String> {
-        return &mut self.signature;
-    }
-}
-
-pub struct Intermediate {
-    pub key_id: String,
-    pub ski: Vec<u8>,
-    pub cert_der: Vec<u8>,
-    pub subject: x509_cert::name::Name,
-    pub signer: ed25519_dalek::SigningKey,
-    pub not_before: i64,
-    pub not_after: i64,
-    pub active: bool,
-}
-
-pub struct IssuedLeaf {
-    pub leaf_der: Vec<u8>,
-    pub serial: Vec<u8>,
-    pub not_after: i64,
-    pub key_id: String,
-    pub intermediate_der: Vec<u8>,
 }
