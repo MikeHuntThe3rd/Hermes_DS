@@ -59,6 +59,7 @@ async fn setup() -> AppState {
         .expect("client init is expected to succeed");
 
     let state = AppState {
+        http_client: reqwest::Client::builder().build().expect("http client failed to build"),
         pg_interface: DbInterface::new(db_conn_pool)
             .await
             .expect("failed to create the postgres db connection"),

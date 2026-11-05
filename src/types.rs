@@ -187,6 +187,7 @@ pub struct Blob {
 }
 #[derive(Clone)]
 pub struct AppState {
+    pub http_client: reqwest::Client,
     pub pg_interface: DbInterface<DbPool<Postgres>>,
     pub kvs_client: Client,
 }
@@ -198,4 +199,15 @@ pub struct DsJwtClaims {
     pub device_id: Uuid,
     pub iat: u64,
     pub exp: u64,
+}
+
+#[derive(Deserialize)]
+pub struct Jwks {
+    pub kty: String,
+    pub crv: String,
+    pub x: String,
+    pub kid: Uuid,
+    pub alg: String,
+    #[serde(rename = "use")]
+    pub usage: String,
 }
