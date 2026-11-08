@@ -31,6 +31,7 @@ pub trait Bindable<DB: Database> {
     fn columns() -> &'static [&'static str];
     fn id_columns() -> &'static [&'static str];
     fn base_columns() -> &'static [&'static str];
+    fn non_default_columns() -> &'static [&'static str];
 
     fn bind_values<'lftm>(
         &'lftm self,
@@ -53,6 +54,7 @@ pub enum BindVal {
     ID,
     BASE,
     ALL,
+    ND,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
