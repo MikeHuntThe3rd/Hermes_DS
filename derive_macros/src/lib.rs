@@ -4,7 +4,7 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{self, Data, Expr, Field, Fields, Lit, Meta};
 
-#[proc_macro_derive(Bindable, attributes(ids, include_ids))]
+#[proc_macro_derive(Bindable, attributes(ids, include_ids, has_default))]
 pub fn derive_macro_ingress(input: TokenStream) -> TokenStream {
     let parsed_vals = &syn::parse(input).expect("token parsing is expected to succeed");
     return implement_trait(parsed_vals);

@@ -20,6 +20,12 @@ use x509_cert::serial_number;
 pub const KID_STR: &'static str = "kid:";
 
 pub const PLACE_HOLDER_UUID: Uuid = Uuid::nil();
+pub const PLACE_HOLDER_TIME: OffsetDateTime = match OffsetDateTime::from_unix_timestamp(0) {
+    Ok(k) => k,
+    _ => {
+        panic!("time placeholder construction is expected to succeed")
+    }
+};
 
 pub const B64_ENGINE: GeneralPurpose = URL_SAFE_NO_PAD;
 
@@ -100,18 +106,21 @@ where
 #[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
 #[ids = "id"]
 pub struct KeyPackage {
+    #[has_default]
     pub id: i64,
     pub user_id: Uuid,
     pub device_id: Uuid,
     pub key_package: Vec<u8>,
     pub is_last_resort: bool,
     #[serde(with = "time::serde::timestamp")]
+    #[has_default]
     pub created_at: OffsetDateTime,
 }
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
 #[ids = "id"]
 pub struct Group {
+    #[has_default]
     pub id: Uuid,
     pub epoch: i64,
     pub groupinfo: Vec<u8>,
@@ -119,8 +128,10 @@ pub struct Group {
     pub created_by_user: Uuid,
     pub created_by_device: Uuid,
     #[serde(with = "time::serde::timestamp")]
+    #[has_default]
     pub created_at: OffsetDateTime,
     #[serde(with = "time::serde::timestamp")]
+    #[has_default]
     pub updated_at: OffsetDateTime,
 }
 
@@ -131,6 +142,7 @@ pub struct GroupMemberHint {
     pub user_id: Uuid,
     pub device_id: Uuid,
     #[serde(with = "time::serde::timestamp")]
+    #[has_default]
     pub added_at: OffsetDateTime,
 }
 
@@ -143,12 +155,14 @@ pub struct GroupLog {
     pub kind: LogKind,
     pub payload: Vec<u8>,
     #[serde(with = "time::serde::timestamp")]
+    #[has_default]
     pub created_at: OffsetDateTime,
 }
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
 #[ids = "id"]
 pub struct MailboxItem {
+    #[has_default]
     pub id: Uuid,
     pub ord: i64,
     pub recipient_user: Uuid,
@@ -158,6 +172,7 @@ pub struct MailboxItem {
     pub sender_user: Uuid,
     pub sender_device: Uuid,
     #[serde(with = "time::serde::timestamp")]
+    #[has_default]
     pub created_at: OffsetDateTime,
 }
 
@@ -167,12 +182,14 @@ pub struct MailboxAck {
     pub item_id: Uuid,
     pub device_id: Uuid,
     #[serde(with = "time::serde::timestamp")]
+    #[has_default]
     pub acked_at: OffsetDateTime,
 }
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
 #[ids = "id"]
 pub struct Blob {
+    #[has_default]
     pub id: Uuid,
     pub owner_user: Uuid,
     pub owner_device: Uuid,
@@ -183,7 +200,9 @@ pub struct Blob {
     #[serde(with = "time::serde::timestamp")]
     pub expires_at: OffsetDateTime,
     #[serde(with = "time::serde::timestamp")]
+    #[has_default]
     pub created_at: OffsetDateTime,
+    #[has_default]
     pub status: BlobStatus,
 }
 #[derive(Clone)]
