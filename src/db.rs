@@ -2,10 +2,12 @@
 use std::ops::DerefMut;
 
 use crate::{responses::error_t::InternalError, types::*};
-use sqlx::{Database, Encode, Executor, FromRow, IntoArguments, Pool, QueryBuilder, Transaction, pool::PoolConnection, query::Query};
+use sqlx::{
+    Database, Encode, Executor, FromRow, IntoArguments, Pool, QueryBuilder, Transaction,
+    pool::PoolConnection, query::Query,
+};
 
-pub trait Connect
-{
+pub trait Connect {
     type DB: Database;
     type Conn<'a>: DerefMut<Target = <Self::DB as Database>::Connection> + Send
     where
@@ -16,45 +18,57 @@ pub trait Connect
 
 #[derive(Clone)]
 pub struct DbInterface<C>
-where C: Connect
+where
+    C: Connect,
 {
     connector: C,
 }
 
-pub struct DbPool<DB> 
-where  DB: Database
+pub struct DbPool<DB>
+where
+    DB: Database,
 {
     pool: Pool<DB>,
 }
 
 impl<DB: Database> Clone for DbPool<DB> {
     fn clone(&self) -> Self {
-        return Self { pool: self.pool.clone()};
+        return Self {
+            pool: self.pool.clone(),
+        };
     }
 }
 
-impl<DB> Connect for DbPool<DB> 
-where  DB: Database
+impl<DB> Connect for DbPool<DB>
+where
+    DB: Database,
 {
     type DB = DB;
     type Conn<'a> = PoolConnection<DB>;
 
     async fn conn(&mut self) -> Result<Self::Conn<'_>, InternalError> {
-        return Ok(self.pool.acquire().await.map_err(|_| InternalError::DbError)?);
+        return Ok(self
+            .pool
+            .acquire()
+            .await
+            .map_err(|_| InternalError::DbError)?);
     }
 }
 
 impl<DB: Database> DbInterface<DbPool<DB>> {
-
-    pub async fn begin_transaction(&mut self) -> Result<DbInterface<DbTransaction<DB>>, InternalError> {
-        return Ok(DbInterface { connector: DbTransaction {
-            conn: self
-                .connector
-                .pool
-                .begin()
-                .await
-                .map_err(|_| InternalError::DbError)?,
-        } });
+    pub async fn begin_transaction(
+        &mut self,
+    ) -> Result<DbInterface<DbTransaction<DB>>, InternalError> {
+        return Ok(DbInterface {
+            connector: DbTransaction {
+                conn: self
+                    .connector
+                    .pool
+                    .begin()
+                    .await
+                    .map_err(|_| InternalError::DbError)?,
+            },
+        });
     }
 
     pub async fn new(pool: Pool<DB>) -> Result<DbInterface<DbPool<DB>>, sqlx::Error> {
@@ -64,8 +78,9 @@ impl<DB: Database> DbInterface<DbPool<DB>> {
     }
 }
 
-pub struct DbTransaction<DB> 
-where DB: Database
+pub struct DbTransaction<DB>
+where
+    DB: Database,
 {
     conn: Transaction<'static, DB>,
 }
@@ -83,7 +98,6 @@ impl<DB: Database> Connect for DbTransaction<DB> {
 }
 
 impl<DB: Database> DbInterface<DbTransaction<DB>> {
-
     pub async fn commit(self) -> Result<(), InternalError> {
         return self
             .connector
@@ -103,15 +117,17 @@ impl<DB: Database> DbInterface<DbTransaction<DB>> {
     }
 }
 
-impl<C: Connect> DbInterface<C> 
-where <C::DB as Database>::Arguments: IntoArguments<C::DB>, 
+impl<C: Connect> DbInterface<C>
+where
+    <C::DB as Database>::Arguments: IntoArguments<C::DB>,
     for<'c> &'c mut <C::DB as Database>::Connection: Executor<'c, Database = C::DB>,
 {
-    pub async fn insert_one<T>(&mut self, data: T, insert_all: bool) -> Result<T, InternalError>
-    where T: Bindable<C::DB> + for<'r> FromRow<'r, <C::DB as Database>::Row> + Send + Unpin,
+    pub async fn insert_one<T>(&mut self, data: T, bind_style: BindVal) -> Result<T, InternalError>
+    where
+        T: Bindable<C::DB> + for<'r> FromRow<'r, <C::DB as Database>::Row> + Send + Unpin,
     {
         return self
-            .insert_many(&[data], insert_all)
+            .insert_many(&[data], bind_style)
             .await?
             .into_iter()
             .next()
@@ -121,7 +137,7 @@ where <C::DB as Database>::Arguments: IntoArguments<C::DB>,
     pub async fn insert_many<T>(
         &mut self,
         data: &[T],
-        insert_all: bool,
+        bind_style: BindVal,
     ) -> Result<Vec<T>, InternalError>
     where
         T: Bindable<C::DB> + for<'r> FromRow<'r, <C::DB as Database>::Row> + Send + Unpin,
@@ -132,11 +148,12 @@ where <C::DB as Database>::Arguments: IntoArguments<C::DB>,
             let _msg = sqlx::Error::InvalidArgument("cant form a query without data".to_string());
             return Err(InternalError::DbError);
         }
-        
-        let cols = if insert_all {
-            T::columns()
-        } else {
-            T::base_columns()
+
+        let cols = match bind_style {
+            BindVal::ID => T::id_columns(),
+            BindVal::BASE => T::base_columns(),
+            BindVal::ALL => T::columns(),
+            BindVal::ND => T::non_default_columns(),
         };
         let mut sql: QueryBuilder<C::DB> = QueryBuilder::new("INSERT INTO ");
         sql.push(T::table_name().to_string() + " (");
@@ -147,32 +164,24 @@ where <C::DB as Database>::Arguments: IntoArguments<C::DB>,
         });
 
         sql.push(") VALUES ");
+        let mut is_first = true;
+        for row in data {
+            if is_first {
+                sql.push("(");
+                is_first = false;
+            } else {
+                sql.push(", (");
+            }
 
-        let mut sepr_outer = sql.separated(", ");
-        let mut index: i32 = 1;
-        for _ in 0..data.len() {
-            sepr_outer.push("(");
+            let mut sepr = sql.separated(", ");
+            row.bind_values(&mut sepr, &bind_style);
 
-            (0..cols.len()).for_each(|i| {
-                let inp = format!("${index}");
-                if i == 0 {
-                    sepr_outer.push_unseparated(inp);
-                } else {
-                    sepr_outer.push(inp);
-                }
-
-                index += 1;
-            });
-
-            sepr_outer.push_unseparated(")");
+            sql.push(")");
         }
 
         sql.push(" RETURNING *;");
 
-        let mut query = sql.build_query_as::<T>();
-        for generic in data {
-            query = generic.bind_values(query, BindVal::BASE);
-        }
+        let query = sql.build_query_as::<T>();
 
         let res = query
             .fetch_all(&mut *conn)
@@ -197,34 +206,30 @@ where <C::DB as Database>::Arguments: IntoArguments<C::DB>,
         sql.push(T::table_name()).push(" SET (");
 
         let mut sepr = sql.separated(", ");
-        T::base_columns().iter().for_each(|col| {
+        for col in T::base_columns() {
             sepr.push(col);
-        });
+        }
 
         sql.push(") = (");
 
         let mut sepr = sql.separated(", ");
-        ((T::id_columns().len() + 1)..=T::columns().len()).for_each(|param| {
-            sepr.push(format!("${param}"));
-        });
+        data.bind_values(&mut sepr, &BindVal::BASE);
 
         sql.push(") WHERE (");
 
         let mut sepr = sql.separated(", ");
-        T::id_columns().iter().for_each(|col| {
+        for col in T::id_columns() {
             sepr.push(col);
-        });
+        }
 
         sql.push(") = (");
 
         let mut sepr = sql.separated(", ");
-        (1..=T::id_columns().len()).for_each(|param| {
-            sepr.push(format!("${param}"));
-        });
+        data.bind_values(&mut sepr, &BindVal::ID);
 
         sql.push(") RETURNING *;");
 
-        let query = data.bind_values(sql.build_query_as::<T>(), BindVal::ALL);
+        let query = sql.build_query_as::<T>();
         let res = query
             .fetch_one(&mut *conn)
             .await
@@ -232,7 +237,11 @@ where <C::DB as Database>::Arguments: IntoArguments<C::DB>,
         Ok(res)
     }
 
-    pub async fn delete_many<I, T>(&mut self, id_s: &[&str], param_s: &[I]) -> Result<Vec<T>, InternalError>
+    pub async fn delete_many<I, T>(
+        &mut self,
+        id_s: &[&str],
+        param_s: &[I],
+    ) -> Result<Vec<T>, InternalError>
     where
         I: for<'q> Encode<'q, C::DB> + sqlx::Type<C::DB>,
         T: Bindable<C::DB> + for<'r> FromRow<'r, <C::DB as Database>::Row> + Send + Unpin,
@@ -243,7 +252,9 @@ where <C::DB as Database>::Arguments: IntoArguments<C::DB>,
         sql.push(T::table_name()).push(" WHERE (");
 
         let mut sepr = sql.separated(", ");
-        for col in id_s { sepr.push(col); }
+        for col in id_s {
+            sepr.push(col);
+        }
 
         sql.push(") = (");
 
@@ -255,7 +266,7 @@ where <C::DB as Database>::Arguments: IntoArguments<C::DB>,
         sql.push(") RETURNING *;");
 
         let mut query = sql.build_query_as::<T>();
-        
+
         let res = query
             .fetch_all(&mut *conn)
             .await

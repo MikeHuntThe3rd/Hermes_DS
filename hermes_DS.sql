@@ -22,7 +22,7 @@ CREATE TABLE key_packages (
     user_id         uuid        NOT NULL,
     device_id       uuid        NOT NULL,
     key_package     bytea       NOT NULL CHECK (octet_length(key_package) > 0),
-    is_last_resort  boolean     NOT NULL DEFAULT false,
+    is_last_resort  boolean     NOT NULL,
     created_at      timestamptz NOT NULL DEFAULT now()
 );
 
@@ -39,10 +39,10 @@ CREATE INDEX key_packages_claim
     WHERE NOT is_last_resort;
 
 CREATE TABLE groups (
-    id 			        uuid 	    PRIMARY KEY DEFAULT uuidv4(),
-    epoch               bigint      NOT NULL DEFAULT 0 CHECK (epoch >= 0),
+    id 			uuid 	    PRIMARY KEY DEFAULT uuidv4(),
+    epoch               bigint      NOT NULL CHECK (epoch >= 0),
     groupinfo           bytea       NOT NULL CHECK (octet_length(groupinfo) > 0),
-    last_seq            bigint      NOT NULL DEFAULT 0 CHECK (last_seq >= 0),
+    last_seq            bigint      NOT NULL CHECK (last_seq >= 0),
     created_by_user     uuid        NOT NULL,
     created_by_device   uuid        NOT NULL,
     created_at          timestamptz NOT NULL DEFAULT now(),

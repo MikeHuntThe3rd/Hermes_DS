@@ -10,10 +10,10 @@ use axum_extra::{
     headers::{Authorization, authorization::Bearer},
 };
 
-use fred::{interfaces::KeysInterface, types::SetOptions::NX};
+use fred::interfaces::KeysInterface;
 use jsonwebtoken::{DecodingKey, Validation, decode, decode_header};
 use serde::{Deserialize, Serialize};
-use time::{OffsetDateTime, SignedDuration};
+use time::SignedDuration;
 use uuid::Uuid;
 
 use crate::{responses::error_t::*, types::AppState};
@@ -46,22 +46,21 @@ where
             .await
             .map_err(|_| InternalError::RedisError)?;
 
-        let decode_key = if let Some(public_key) = public_key_b64 {
-            DecodingKey::from_ed_components(&public_key)
-            .map_err(|_| InternalError::DecodeEncodeErr)?
-        }
-        else {
+        let decode_key = if let Some(public_x) = public_key_b64 {
+            DecodingKey::from_ed_components(&public_x)
+                .map_err(|_| InternalError::DecodeEncodeErr)?
+        } else {
             sync_kvs_to_known_jwks(&app_state).await?;
 
             let public_key = app_state
-            .kvs_client
-            .get::<Option<String>, String>(format!("{KID_STR}{kid}"))
-            .await
-            .map_err(|_| InternalError::RedisError)?
-            .ok_or(InternalError::NoMatches)?;
+                .kvs_client
+                .get::<Option<String>, String>(format!("{KID_STR}{kid}"))
+                .await
+                .map_err(|_| InternalError::RedisError)?
+                .ok_or(InternalError::NoMatches)?;
 
             DecodingKey::from_ed_components(&public_key)
-            .map_err(|_| InternalError::DecodeEncodeErr)?
+                .map_err(|_| InternalError::DecodeEncodeErr)?
         };
 
         let tkn_data = decode::<DsJwtClaims>(
@@ -71,32 +70,47 @@ where
         )
         .map_err(|_| GenericErr::Auth(AuthError::InvalidToken))?;
 
-        if tkn_data.claims.exp > OffsetDateTime::now_utc().unix_timestamp() as u64{
-            app_state.kvs_client.del::<i8, &[String; 1]>(&[kid])
-            .await.map_err(|_| InternalError::RedisError)?;
-            return Err(AuthError::ExpiredToken.into());
-        }
-
         return Ok(DsAccess {
             user_id: tkn_data.claims.sub,
-            device_id: tkn_data.claims.device_id
+            device_id: tkn_data.claims.device_id,
         });
     }
 }
 
 async fn sync_kvs_to_known_jwks(state: &AppState) -> Result<(), InternalError> {
-    let resp_body = state.http_client.get("todo: set an actual url").send()
-    .await.map_err(|_| InternalError::OperationsError)?
-    .text().await.map_err(|_| InternalError::OperationsError)?;
+    let resp_body = state
+        .http_client
+        .get("todo: set an actual url")
+        .send()
+        .await
+        .map_err(|_| InternalError::OperationsError)?
+        .text()
+        .await
+        .map_err(|_| InternalError::OperationsError)?;
 
-    let jwks: Vec<Jwks> = serde_json::de::from_str(&resp_body)
-    .map_err(|_| InternalError::DecodeEncodeErr)?;
+    let jwks: Vec<Jwks> =
+        serde_json::de::from_str(&resp_body).map_err(|_| InternalError::DecodeEncodeErr)?;
 
     for jwk in jwks {
-        let sig: Option<String> = state.kvs_client.get(format!("{KID_STR}{}", jwk.kid)).await.map_err(|_| InternalError::RedisError)?;
+        let sig: Option<String> = state
+            .kvs_client
+            .get(format!("{KID_STR}{}", jwk.kid))
+            .await
+            .map_err(|_| InternalError::RedisError)?;
         if sig.is_none() {
-            state.kvs_client.set::<i8, String, String>(format!("{KID_STR}{}", jwk.kid), jwk.x, Some(fred::types::Expiration::EX(SignedDuration::minutes(10).as_seconds_f64() as i64)), Some(NX), false)
-            .await.map_err(|_| InternalError::RedisError)?;
+            state
+                .kvs_client
+                .set::<i8, String, String>(
+                    format!("{KID_STR}{}", jwk.kid),
+                    jwk.x,
+                    Some(fred::types::Expiration::EX(
+                        SignedDuration::minutes(10).as_seconds_f64() as i64,
+                    )),
+                    Some(fred::types::SetOptions::NX),
+                    false,
+                )
+                .await
+                .map_err(|_| InternalError::RedisError)?;
         }
     }
 
