@@ -35,10 +35,9 @@ pub trait Bindable<DB: Database> {
 
     fn bind_values<'lftm>(
         &'lftm self,
-        query: QueryAs<'lftm, DB, Self, DB::Arguments>,
+        query_builder: &mut sqlx::query_builder::Separated<'lftm, DB, &'static str>,
         bind_val: BindVal,
-    ) -> QueryAs<'lftm, DB, Self, DB::Arguments>
-    where
+    ) where
         Self: Sized;
 }
 
