@@ -169,7 +169,7 @@ fn implement_trait(vals: &syn::DeriveInput) -> TokenStream {
             fn bind_values<'lftm>(
                 &'lftm self,
                 query_builder: &mut sqlx::query_builder::Separated<'lftm, DB, &'static str>,
-                bind_val: BindVal,
+                bind_val: &BindVal,
             )
             {
                 match bind_val {

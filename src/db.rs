@@ -164,32 +164,24 @@ where
         });
 
         sql.push(") VALUES ");
+        let mut is_first = true;
+        for row in data {
+            if is_first {
+                sql.push("(");
+                is_first = false;
+            } else {
+                sql.push(", (");
+            }
 
-        let mut sepr = sql.separated(", ");
-        let mut index: i32 = 1;
-        for _ in 0..data.len() {
-            sepr.push("(");
+            let mut sepr = sql.separated(", ");
+            row.bind_values(&mut sepr, &bind_style);
 
-            (0..cols.len()).for_each(|i| {
-                let inp = format!("${index}");
-                if i == 0 {
-                    sepr.push_unseparated(inp);
-                } else {
-                    sepr.push(inp);
-                }
-
-                index += 1;
-            });
-
-            sepr.push_unseparated(")");
+            sql.push(")");
         }
 
         sql.push(" RETURNING *;");
 
-        let mut query = sql.build_query_as::<T>();
-        for generic in data {
-            query = generic.bind_values(query, BindVal::BASE);
-        }
+        let query = sql.build_query_as::<T>();
 
         let res = query
             .fetch_all(&mut *conn)
@@ -214,34 +206,30 @@ where
         sql.push(T::table_name()).push(" SET (");
 
         let mut sepr = sql.separated(", ");
-        T::base_columns().iter().for_each(|col| {
+        for col in T::base_columns() {
             sepr.push(col);
-        });
+        }
 
         sql.push(") = (");
 
         let mut sepr = sql.separated(", ");
-        ((T::id_columns().len() + 1)..=T::columns().len()).for_each(|param| {
-            sepr.push(format!("${param}"));
-        });
+        data.bind_values(&mut sepr, &BindVal::BASE);
 
         sql.push(") WHERE (");
 
         let mut sepr = sql.separated(", ");
-        T::id_columns().iter().for_each(|col| {
+        for col in T::id_columns() {
             sepr.push(col);
-        });
+        }
 
         sql.push(") = (");
 
         let mut sepr = sql.separated(", ");
-        (1..=T::id_columns().len()).for_each(|param| {
-            sepr.push(format!("${param}"));
-        });
+        data.bind_values(&mut sepr, &BindVal::ID);
 
         sql.push(") RETURNING *;");
 
-        let query = data.bind_values(sql.build_query_as::<T>(), BindVal::ALL);
+        let query = sql.build_query_as::<T>();
         let res = query
             .fetch_one(&mut *conn)
             .await

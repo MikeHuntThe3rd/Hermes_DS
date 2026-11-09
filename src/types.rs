@@ -36,7 +36,7 @@ pub trait Bindable<DB: Database> {
     fn bind_values<'lftm>(
         &'lftm self,
         query_builder: &mut sqlx::query_builder::Separated<'lftm, DB, &'static str>,
-        bind_val: BindVal,
+        bind_val: &BindVal,
     ) where
         Self: Sized;
 }
