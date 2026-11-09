@@ -39,6 +39,7 @@ CREATE INDEX key_packages_claim
     WHERE NOT is_last_resort;
 
 CREATE TABLE groups (
+<<<<<<< HEAD
     id 			uuid 	    PRIMARY KEY DEFAULT uuidv4(),
     epoch               bigint      NOT NULL DEFAULT 0 CHECK (epoch >= 0),
     groupinfo           bytea       NOT NULL CHECK (octet_length(groupinfo) > 0),

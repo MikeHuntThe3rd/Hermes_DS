@@ -31,6 +31,7 @@ pub trait Bindable<DB: Database> {
     fn columns() -> &'static [&'static str];
     fn id_columns() -> &'static [&'static str];
     fn base_columns() -> &'static [&'static str];
+    fn non_default_columns() -> &'static [&'static str];
 
     fn bind_values<'lftm>(
         &'lftm self,
@@ -53,6 +54,7 @@ pub enum BindVal {
     ID,
     BASE,
     ALL,
+    ND,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
@@ -187,6 +189,7 @@ pub struct Blob {
 }
 #[derive(Clone)]
 pub struct AppState {
+    pub http_client: reqwest::Client,
     pub pg_interface: DbInterface<DbPool<Postgres>>,
     pub kvs_client: Client,
 }
@@ -198,4 +201,15 @@ pub struct DsJwtClaims {
     pub device_id: Uuid,
     pub iat: u64,
     pub exp: u64,
+}
+
+#[derive(Deserialize)]
+pub struct Jwks {
+    pub kty: String,
+    pub crv: String,
+    pub x: String,
+    pub kid: Uuid,
+    pub alg: String,
+    #[serde(rename = "use")]
+    pub usage: String,
 }

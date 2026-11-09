@@ -132,6 +132,7 @@ where <C::DB as Database>::Arguments: IntoArguments<C::DB>,
             let _msg = sqlx::Error::InvalidArgument("cant form a query without data".to_string());
             return Err(InternalError::DbError);
         }
+        
         let cols = if insert_all {
             T::columns()
         } else {
@@ -231,7 +232,7 @@ where <C::DB as Database>::Arguments: IntoArguments<C::DB>,
         Ok(res)
     }
 
-    pub async fn delete_many<I, T>(&mut self, id_s: &[I]) -> Result<Vec<T>, InternalError>
+    pub async fn delete_many<I, T>(&mut self, id_s: &[&str], param_s: &[I]) -> Result<Vec<T>, InternalError>
     where
         I: for<'q> Encode<'q, C::DB> + sqlx::Type<C::DB>,
         T: Bindable<C::DB> + for<'r> FromRow<'r, <C::DB as Database>::Row> + Send + Unpin,
@@ -242,23 +243,19 @@ where <C::DB as Database>::Arguments: IntoArguments<C::DB>,
         sql.push(T::table_name()).push(" WHERE (");
 
         let mut sepr = sql.separated(", ");
-        T::id_columns().iter().for_each(|col| {
-            sepr.push(col);
-        });
+        for col in id_s { sepr.push(col); }
 
         sql.push(") = (");
 
         let mut sepr = sql.separated(", ");
-        (1..=T::id_columns().len()).for_each(|param| {
-            sepr.push(format!("${param}"));
-        });
+        for val in param_s {
+            sepr.push_bind(val);
+        }
 
         sql.push(") RETURNING *;");
 
         let mut query = sql.build_query_as::<T>();
-        for val in id_s {
-            query = query.bind(val);
-        }
+        
         let res = query
             .fetch_all(&mut *conn)
             .await

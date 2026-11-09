@@ -2,12 +2,27 @@ extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{self, Data, Expr, Fields, Lit, Meta};
+use syn::{self, Data, Expr, Field, Fields, Lit, Meta};
 
 #[proc_macro_derive(Bindable, attributes(ids, include_ids))]
 pub fn derive_macro_ingress(input: TokenStream) -> TokenStream {
     let parsed_vals = &syn::parse(input).expect("token parsing is expected to succeed");
     return implement_trait(parsed_vals);
+}
+
+fn is_default(field: &Field) -> bool {
+    for attr in &field.attrs {
+        if !attr.path().is_ident("is_default") {
+            continue;
+        }
+
+        return match &attr.meta {
+            // #[is_default]
+            Meta::Path(_) => true,
+            _ => {panic!("expected default syntax is: #[is_default]")},
+        };
+    }
+    return false;
 }
 
 fn implement_trait(vals: &syn::DeriveInput) -> TokenStream {
@@ -22,6 +37,13 @@ fn implement_trait(vals: &syn::DeriveInput) -> TokenStream {
     let Fields::Named(fields) = &struct_tree.fields else {
         panic!("this derive macro only supports named fields");
     };
+
+    let all_named_fields = fields.named.clone();
+
+    let all_col_idents: Vec<syn::Ident> = fields.named
+    .iter()
+    .map(|field| field.ident.clone().expect("this derive macro only supports named fields"))
+    .collect();
     
     if &vals.attrs.len() == &(0 as usize) {
         panic!("an attribute list is required");
@@ -52,19 +74,16 @@ fn implement_trait(vals: &syn::DeriveInput) -> TokenStream {
     let name = &vals.ident;
     let table_name = vals.ident.to_string().to_lowercase() + "s";
 
-    let all_col_idents: Vec<syn::Ident> = fields.named
-    .iter()
-    .map(|field| field.ident.clone().expect("all fields are expected to be named"))
-    .collect();
-
     let mut id_col_idents: Vec<syn::Ident> = vec![];
     let mut base_col_idents: Vec<syn::Ident> = vec![];
+    let mut non_default_col_idents: Vec<syn::Ident> = vec![];
 
     let mut all_col_names: Vec<String> = vec![];
     let mut base_col_names: Vec<String> = vec![];
+    let mut non_default_col_names: Vec<String> = vec![];
 
     for col_name in &id_col_names {
-        if None == all_col_idents.iter().find(|col_ident| col_name.to_string() == col_ident.to_string()) {
+        if all_col_idents.iter().find(|col_ident| col_name.to_string() == col_ident.to_string()).is_none() {
             panic!("all given id-s must be valid field names for the struct");
         }
     }
@@ -86,13 +105,22 @@ fn implement_trait(vals: &syn::DeriveInput) -> TokenStream {
         }
     }
 
+    for field in all_named_fields {
+        if !is_default(&field) {
+            non_default_col_idents.push(field.ident.clone().expect("all fields have idents"));
+            non_default_col_names.push(field.ident.expect("all fields have idents").to_string());
+        }
+    }
+
     let static_ids = to_static_helper(id_col_names);
     let static_bases = to_static_helper(base_col_names);
     let static_all = to_static_helper(all_col_names);
+    let static_non_default = to_static_helper(non_default_col_names);
 
     let bind_id = quote! { res #(.bind(&self.#id_col_idents))* };
     let bind_base = quote! { res #(.bind(&self.#base_col_idents))* };
     let bind_all = quote! { res #(.bind(&self.#all_col_idents))* };
+    let bind_non_defaults = quote! { res #(.bind(&self.#non_default_col_idents))* };
 
     let all_col_types: Vec<&syn::Type> = fields.named.iter().map(|f| &f.ty).collect();
 
@@ -117,6 +145,10 @@ fn implement_trait(vals: &syn::DeriveInput) -> TokenStream {
             fn columns() -> &'static [&'static str] {
                 return &[#(#static_all), *];
             }
+            fn non_default_columns() -> &'static [&'static str] {
+                return &[#(#static_non_default), *];
+            }
+
 
             fn bind_values<'lftm>(
                 &'lftm self,
@@ -130,6 +162,7 @@ fn implement_trait(vals: &syn::DeriveInput) -> TokenStream {
                     BindVal::ID => res = #bind_id,
                     BindVal::BASE => res = #bind_base,
                     BindVal::ALL => res = #bind_all,
+                    BindVal::ND => res = #bind_non_defaults,
                 }
 
                 return res;
