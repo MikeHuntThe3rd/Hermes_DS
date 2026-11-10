@@ -69,6 +69,8 @@ pub async fn put_keypackages(
     tr.insert_one(last_resort, crate::types::BindVal::ND)
         .await?;
 
+    tr.commit().await?;
+
     return Ok(Res {
         status: StatusCode::OK,
         success: true,
