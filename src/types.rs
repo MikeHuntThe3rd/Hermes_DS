@@ -1,7 +1,7 @@
 #![allow(warnings)]
-use std::sync::Arc;
+use std::{ops::DerefMut, sync::Arc};
 
-use crate::db::*;
+use crate::{db::*, responses::error_t::InternalError};
 use axum::http::StatusCode;
 use base64::engine::{GeneralPurpose, general_purpose::URL_SAFE_NO_PAD};
 use derive_macros::Bindable;
@@ -47,9 +47,13 @@ pub trait Bindable<DB: Database> {
         Self: Sized;
 }
 
-pub trait FetchableSignature {
-    fn fetch_mut_kid(&mut self) -> &mut Option<Uuid>;
-    fn fetch_mut_Signature(&mut self) -> &mut Option<String>;
+pub trait Connect {
+    type DB: Database;
+    type Conn<'a>: DerefMut<Target = <Self::DB as Database>::Connection> + Send
+    where
+        Self: 'a;
+
+    async fn conn(&mut self) -> Result<Self::Conn<'_>, InternalError>;
 }
 
 /* ===== ENUMS ===== */
@@ -60,6 +64,13 @@ pub enum BindVal {
     BASE,
     ALL,
     ND,
+}
+
+#[derive(PartialEq)]
+pub enum LogicalOp {
+    AND,
+    OR,
+    IN,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]

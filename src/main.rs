@@ -23,8 +23,7 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
-    db::DbInterface,
-    handlers::{get::*, put::*},
+    db::DbInterface, handlers::{get::*, post::claim_key_pkg, put::*},
 };
 use types::AppState;
 
@@ -93,6 +92,7 @@ async fn main() {
 
     let key_pkgs: Router<AppState> = Router::new()
         .route("/", put(put_keypackages))
+        .route("/claim", post(claim_key_pkg))
         .route("/count", get(get_key_pkgs));
 
     let api = Router::new()

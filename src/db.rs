@@ -2,19 +2,11 @@
 use std::ops::DerefMut;
 
 use crate::{responses::error_t::InternalError, types::*};
+use ed25519_dalek::pkcs8::Error::ParametersMalformed;
 use sqlx::{
     Database, Encode, Executor, FromRow, IntoArguments, Pool, QueryBuilder, Transaction,
     pool::PoolConnection, query::Query,
 };
-
-pub trait Connect {
-    type DB: Database;
-    type Conn<'a>: DerefMut<Target = <Self::DB as Database>::Connection> + Send
-    where
-        Self: 'a;
-
-    async fn conn(&mut self) -> Result<Self::Conn<'_>, InternalError>;
-}
 
 #[derive(Clone)]
 pub struct DbInterface<C>
@@ -237,33 +229,58 @@ where
         Ok(res)
     }
 
-    pub async fn delete_many<I, T>(
+    pub async fn delete_matches<I, T>(
         &mut self,
         id_s: &[&str],
-        param_s: &[I],
+        param_s: &Vec<I>,
+        op_type: LogicalOp
     ) -> Result<Vec<T>, InternalError>
     where
+        Vec<I>: for<'v> Encode<'v, C::DB> + sqlx::Type<C::DB>,
         I: for<'q> Encode<'q, C::DB> + sqlx::Type<C::DB>,
         T: Bindable<C::DB> + for<'r> FromRow<'r, <C::DB as Database>::Row> + Send + Unpin,
     {
         let mut conn = self.connector.conn().await?;
 
         let mut sql: QueryBuilder<C::DB> = QueryBuilder::new("DELETE FROM ");
-        sql.push(T::table_name()).push(" WHERE (");
+        sql.push(T::table_name())
+        .push(" WHERE ");
 
-        let mut sepr = sql.separated(", ");
-        for col in id_s {
-            sepr.push(col);
+        match op_type {
+            LogicalOp::AND => {
+                sql.push("(");
+
+                let mut sepr = sql.separated(", ");
+                for col in id_s {
+                    sepr.push(col);
+                }
+
+                sql.push(") = (");
+
+                let mut sepr = sql.separated(", ");
+                for param in param_s {
+                    sepr.push_bind(param);
+                }
+
+                sql.push(")");
+            },
+            LogicalOp::OR => {
+                let mut or_sepr = sql.separated(" OR ");
+
+                for param in param_s {
+                    or_sepr.push_bind(param);
+                }
+            },
+            LogicalOp::IN => {
+                if let Some(id) = id_s.first() {
+                    sql.push(format!("{id} = ANY("));
+                    sql.push_bind(param_s);
+                    sql.push(")");
+                }
+            },
         }
-
-        sql.push(") = (");
-
-        let mut sepr = sql.separated(", ");
-        for val in param_s {
-            sepr.push_bind(val);
-        }
-
-        sql.push(") RETURNING *;");
+      
+        sql.push(" RETURNING *;");
 
         let mut query = sql.build_query_as::<T>();
 

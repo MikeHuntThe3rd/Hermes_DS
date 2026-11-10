@@ -2,13 +2,10 @@ use axum::{Json, extract::State};
 use base64::Engine;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
-    axum_trait_impls::extractors::DsAccess,
-    responses::error_t::InternalError,
-    types::{AppState, B64_ENGINE, KeyPackage, PLACE_HOLDER_TIME, Res},
+    axum_trait_impls::extractors::DsAccess, responses::error_t::InternalError, types::{AppState, B64_ENGINE, KeyPackage, LogicalOp, PLACE_HOLDER_TIME, Res},
 };
 
 #[derive(Deserialize)]
@@ -30,9 +27,10 @@ pub async fn put_keypackages(
 ) -> Result<Res<KeyPackagesResp>, InternalError> {
     let mut tr = state.pg_interface.begin_transaction().await?;
 
-    tr.delete_many::<Uuid, KeyPackage>(
+    tr.delete_matches::<Uuid, KeyPackage>(
         &["user_id", "device_id"],
-        &[device.user_id, device.device_id],
+        &vec![device.user_id, device.device_id],
+        LogicalOp::AND
     )
     .await?;
 
