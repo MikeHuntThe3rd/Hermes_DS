@@ -9,7 +9,7 @@ use std::{env, time::Duration, vec};
 use axum::{
     Router,
     http::{Method, StatusCode, header},
-    routing::{delete, get, patch, post},
+    routing::{delete, get, patch, post, put},
 };
 
 use fred::{
@@ -22,7 +22,10 @@ use fred::{
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tower_http::cors::{Any, CorsLayer};
 
-use crate::{db::DbInterface, types::Res};
+use crate::{
+    db::DbInterface,
+    handlers::{get::*, put::*},
+};
 use types::AppState;
 
 async fn setup() -> AppState {
@@ -59,7 +62,9 @@ async fn setup() -> AppState {
         .expect("client init is expected to succeed");
 
     let state = AppState {
-        http_client: reqwest::Client::builder().build().expect("http client failed to build"),
+        http_client: reqwest::Client::builder()
+            .build()
+            .expect("http client failed to build"),
         pg_interface: DbInterface::new(db_conn_pool)
             .await
             .expect("failed to create the postgres db connection"),
@@ -86,13 +91,20 @@ async fn main() {
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
         .max_age(Duration::from_secs(3600));
 
-    let api = Router::new().layer(cors).with_state(state);
+    let key_pkgs: Router<AppState> = Router::new()
+        .route("/", put(put_keypackages))
+        .route("/count", get(get_key_pkgs));
+
+    let api = Router::new()
+        .nest("/keypkgs", key_pkgs)
+        .layer(cors)
+        .with_state(state);
 
     let interface: Router<()> = Router::new().nest("/apiV1", api);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:8080")
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:8000")
         .await
-        .expect("port 8080 is required to be free");
+        .expect("port 8000 is required to be free");
 
     axum::serve(listener, interface)
         .await
