@@ -1,0 +1,85 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT \n        seq, epoch, kind AS \"kind: LogKind\", payload, created_at \n        FROM group_logs\n            ORDER BY seq ASC\n            LIMIT 500",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "seq",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "group_logs",
+            "name": "seq"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "epoch",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "group_logs",
+            "name": "epoch"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "kind: LogKind",
+        "type_info": {
+          "Custom": {
+            "name": "log_kind",
+            "kind": {
+              "Enum": [
+                "commit",
+                "proposal",
+                "application"
+              ]
+            }
+          }
+        },
+        "origin": {
+          "Table": {
+            "table": "group_logs",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "payload",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "group_logs",
+            "name": "payload"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "group_logs",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7c6f9134b8774a09ad90d1f9da5c06a6fe79a6f8d02dd82b26cc3f8ef3a847be"
+}

@@ -23,7 +23,14 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
-    db::DbInterface, handlers::{get::*, post::claim_key_pkg, put::*},
+    db::DbInterface,
+    handlers::{
+        get::*,
+        post::{
+            claim_key_pkg, commit_proposals, create_group, push_proposal, send_private_message,
+        },
+        put::*,
+    },
 };
 use types::AppState;
 
@@ -95,8 +102,18 @@ async fn main() {
         .route("/claim", post(claim_key_pkg))
         .route("/count", get(get_key_pkgs));
 
+    let groups: Router<AppState> = Router::new()
+        .route("/", post(create_group))
+        .route("/{group_id}/groupinfo", get(get_group_info))
+        .route("/{group_id}/logs", get(get_logs_initial))
+        .route("/{group_id}/logs/{seq}", get(get_logs_from))
+        .route("/{group_id}/proposal", post(push_proposal))
+        .route("/{group_id}/commit", post(commit_proposals))
+        .route("/{group_id}/message", post(send_private_message));
+
     let api = Router::new()
         .nest("/keypkgs", key_pkgs)
+        .nest("/group", groups)
         .layer(cors)
         .with_state(state);
 

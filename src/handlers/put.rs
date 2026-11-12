@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    axum_trait_impls::extractors::DsAccess, responses::error_t::InternalError, types::{AppState, B64_ENGINE, KeyPackage, LogicalOp, PLACE_HOLDER_TIME, Res},
+    axum_trait_impls::extractors::DsAccess,
+    responses::error_t::InternalError,
+    types::{AppState, B64_ENGINE, Key_Package, LogicalOp, PLACE_HOLDER_TIME, Res},
 };
 
 #[derive(Deserialize)]
@@ -27,18 +29,18 @@ pub async fn put_keypackages(
 ) -> Result<Res<KeyPackagesResp>, InternalError> {
     let mut tr = state.pg_interface.begin_transaction().await?;
 
-    tr.delete_matches::<Uuid, KeyPackage>(
+    tr.delete_matches::<Uuid, Key_Package>(
         &["user_id", "device_id"],
         &vec![device.user_id, device.device_id],
-        LogicalOp::AND
+        LogicalOp::AND,
     )
     .await?;
 
-    let base_packages: Vec<KeyPackage> = data
+    let base_packages: Vec<Key_Package> = data
         .key_packages
         .into_iter()
         .map(|pkg| {
-            Ok(KeyPackage {
+            Ok(Key_Package {
                 id: 0,
                 user_id: device.user_id,
                 device_id: device.device_id,
@@ -49,11 +51,11 @@ pub async fn put_keypackages(
                 created_at: PLACE_HOLDER_TIME,
             })
         })
-        .collect::<Result<Vec<KeyPackage>, InternalError>>()?;
+        .collect::<Result<Vec<Key_Package>, InternalError>>()?;
 
     tr.insert_many(&base_packages, crate::types::BindVal::ND)
         .await?;
-    let last_resort = KeyPackage {
+    let last_resort = Key_Package {
         id: 0,
         user_id: device.user_id,
         device_id: device.device_id,

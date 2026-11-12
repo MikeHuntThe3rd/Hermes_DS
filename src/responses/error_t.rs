@@ -31,6 +31,7 @@ pub enum InternalError {
     DetachingOperation,
     InvalidAccountCredentials,
     MiscellaneousInternalError,
+    MismatchedEpoch,
 }
 
 pub enum GenericErr {

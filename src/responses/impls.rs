@@ -34,10 +34,9 @@ impl IntoResponse for AuthError {
     fn into_response(self) -> axum::response::Response {
         let (code, msg) = match self {
             AuthError::InvalidToken => (StatusCode::UNAUTHORIZED, "given jwt is invalid"),
-            AuthError::InvalidCredentials => (
-                StatusCode::UNAUTHORIZED,
-                "given identification is invalid",
-            ),
+            AuthError::InvalidCredentials => {
+                (StatusCode::UNAUTHORIZED, "given identification is invalid")
+            }
             AuthError::MissingToken => {
                 (StatusCode::UNAUTHORIZED, "jwt token required but not found")
             }
@@ -91,6 +90,9 @@ impl IntoResponse for InternalError {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "given data resulted in a faulty db request",
             ),
+            InternalError::MismatchedEpoch => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "given epoch is invalid")
+            }
             InternalError::MiscellaneousInternalError => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "an internal error has occured",

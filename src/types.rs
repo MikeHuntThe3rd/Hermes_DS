@@ -116,7 +116,7 @@ where
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
 #[ids = "id"]
-pub struct KeyPackage {
+pub struct Key_Package {
     #[has_default]
     pub id: i64,
     pub user_id: Uuid,
@@ -131,7 +131,6 @@ pub struct KeyPackage {
 #[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
 #[ids = "id"]
 pub struct Group {
-    #[has_default]
     pub id: Uuid,
     pub epoch: i64,
     pub groupinfo: Vec<u8>,
@@ -148,7 +147,7 @@ pub struct Group {
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
 #[ids = "group_id;user_id;device_id"]
-pub struct GroupMemberHint {
+pub struct Group_Member_Hint {
     pub group_id: Uuid,
     pub user_id: Uuid,
     pub device_id: Uuid,
@@ -159,7 +158,7 @@ pub struct GroupMemberHint {
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
 #[ids = "group_id;seq"]
-pub struct GroupLog {
+pub struct Group_Log {
     pub group_id: Uuid,
     pub seq: i64,
     pub epoch: i64,
@@ -172,9 +171,10 @@ pub struct GroupLog {
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
 #[ids = "id"]
-pub struct MailboxItem {
+pub struct Mailbox_Item {
     #[has_default]
     pub id: Uuid,
+    #[has_default]
     pub ord: i64,
     pub recipient_user: Uuid,
     pub recipient_device: Option<Uuid>,
@@ -189,7 +189,7 @@ pub struct MailboxItem {
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
 #[ids = "item_id;device_id"]
-pub struct MailboxAck {
+pub struct Mailbox_Ack {
     pub item_id: Uuid,
     pub device_id: Uuid,
     #[serde(with = "time::serde::timestamp")]

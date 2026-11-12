@@ -1,6 +1,12 @@
 BEGIN;
 
 -- -----------------------------------------------------------------------------
+-- Types
+-- -----------------------------------------------------------------------------
+
+CREATE TYPE user_device_pair AS (user_id uuid, device_id uuid);
+
+-- -----------------------------------------------------------------------------
 -- Enums
 -- -----------------------------------------------------------------------------
 
@@ -39,7 +45,7 @@ CREATE INDEX key_packages_claim
     WHERE NOT is_last_resort;
 
 CREATE TABLE groups (
-    id 			uuid 	    PRIMARY KEY DEFAULT uuidv4(),
+    id 			uuid	    PRIMARY KEY,
     epoch               bigint      NOT NULL CHECK (epoch >= 0),
     groupinfo           bytea       NOT NULL CHECK (octet_length(groupinfo) > 0),
     last_seq            bigint      NOT NULL CHECK (last_seq >= 0),
@@ -61,7 +67,7 @@ CREATE TABLE group_member_hints (
 
 CREATE INDEX group_member_hints_device ON group_member_hints (device_id, group_id);
 
-CREATE TABLE group_log (
+CREATE TABLE group_logs (
     group_id    uuid       NOT NULL REFERENCES groups (id) ON DELETE CASCADE,
     seq         bigint      NOT NULL CHECK (seq >= 1),
     epoch       bigint      NOT NULL CHECK (epoch >= 0),
@@ -71,7 +77,7 @@ CREATE TABLE group_log (
     PRIMARY KEY (group_id, seq)
 );
 
-CREATE INDEX group_log_created_at ON group_log (created_at);
+CREATE INDEX group_log_created_at ON group_logs (created_at);
 
 CREATE TABLE mailbox_items (
     id                  uuid         PRIMARY KEY DEFAULT uuidv4(),
@@ -99,7 +105,7 @@ CREATE TABLE mailbox_acks (
 );
 
 CREATE TABLE blobs (
-    id                  uuid        PRIMARY KEY DEFAULT uuid(),
+    id                  uuid        PRIMARY KEY DEFAULT uuidv4(),
     owner_user          uuid        NOT NULL,
     owner_device        uuid        NOT NULL,
     size_bytes          bigint      NOT NULL CHECK (size_bytes > 0),
