@@ -1,4 +1,4 @@
-use axum::extract::{Path, State};
+use axum::extract::{Path, State, path};
 use base64::Engine;
 use fred::util::NONE;
 use reqwest::StatusCode;
@@ -7,9 +7,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
-    axum_trait_impls::extractors::DsAccess,
-    responses::error_t::InternalError,
-    types::{AppState, B64_ENGINE, Group, Key_Package, LogKind, Res},
+    axum_trait_impls::extractors::DsAccess, responses::error_t::InternalError, types::{AppState, B64_ENGINE, Group, Key_Package, LogKind, Mailbox_Item, MailboxKind, Res},
 };
 
 #[derive(Serialize)]
@@ -45,6 +43,29 @@ pub struct LogEntryByteArray {
 pub struct LogsResp {
     pub logs: Vec<LogEntry>,
     pub pin: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct MailboxItem{
+    pub id: Uuid,
+    pub kind: MailboxKind,
+    pub payload: String,
+    pub ord: i64,
+}
+
+pub struct RawMailboxItem{
+    pub id: Uuid,
+    pub kind: MailboxKind,
+    pub payload: Vec<u8>,
+    pub ord: i64,
+    pub recipient_device: Option<Uuid>,
+}
+
+#[derive(Serialize)]
+pub struct MailboxPage{
+    pub items: Vec<MailboxItem>,
+    pub has_more: bool,
+    pub pin: Option<i64>
 }
 
 pub async fn get_key_pkgs(
@@ -101,76 +122,43 @@ pub async fn get_group_info(
     });
 }
 
-pub async fn get_logs_initial(
-    _device: DsAccess,
-    State(state): State<AppState>,
-    Path(group_id): Path<Uuid>,
-) -> Result<Res<LogsResp>, InternalError> {
-    return get_group_logs(group_id, None, state).await;
-}
-
-pub async fn get_logs_from(
-    _device: DsAccess,
-    State(state): State<AppState>,
-    Path((group_id, seq)): Path<(Uuid, i64)>,
-) -> Result<Res<LogsResp>, InternalError> {
-    return get_group_logs(group_id, None, state).await;
-}
-
 pub async fn get_group_logs(
-    group_id: Uuid,
-    seq: Option<i64>,
-    mut state: AppState,
+    Path(group_id): Path<Uuid>,
+    seq: Option<Path<i64>>,
+    State(mut state): State<AppState>,
 ) -> Result<Res<LogsResp>, InternalError> {
-    let logs: Vec<LogEntry> = if let Some(pin) = seq {
-        let query = sqlx::query_as!(
-            LogEntryByteArray,
-            r#"SELECT 
-        seq, epoch, kind AS "kind: LogKind", payload, created_at 
-        FROM group_logs
-            WHERE seq > $1
-            ORDER BY seq ASC
-            LIMIT 500"#,
-            pin
-        );
-        let raw_bytes_version = state.pg_interface.generic_fetch(query).await?;
-
-        raw_bytes_version
-            .into_iter()
-            .map(|raw| {
-                Ok(LogEntry {
-                    seq: raw.seq,
-                    epoch: raw.epoch,
-                    kind: raw.kind,
-                    payload: B64_ENGINE.encode(raw.payload),
-                    created_at: raw.created_at,
-                })
-            })
-            .collect::<Result<Vec<LogEntry>, InternalError>>()?
-    } else {
-        let query = sqlx::query_as!(
-            LogEntryByteArray,
-            r#"SELECT 
-        seq, epoch, kind AS "kind: LogKind", payload, created_at 
-        FROM group_logs
-            ORDER BY seq ASC
-            LIMIT 500"#
-        );
-        let raw_bytes_version = state.pg_interface.generic_fetch(query).await?;
-
-        raw_bytes_version
-            .into_iter()
-            .map(|raw| {
-                Ok(LogEntry {
-                    seq: raw.seq,
-                    epoch: raw.epoch,
-                    kind: raw.kind,
-                    payload: B64_ENGINE.encode(raw.payload),
-                    created_at: raw.created_at,
-                })
-            })
-            .collect::<Result<Vec<LogEntry>, InternalError>>()?
+    let offset: i64 = if let Some(path) = seq && let Path(num) = path{
+        num
+    }else{
+        0
     };
+
+    let query = sqlx::query_as!(
+        LogEntryByteArray,
+        r#"SELECT 
+    seq, epoch, kind AS "kind: LogKind", payload, created_at 
+    FROM group_logs
+        WHERE seq > $1 AND group_id = $2
+        ORDER BY seq ASC
+        LIMIT 500"#,
+        offset,
+        group_id
+    );
+
+    let raw_bytes_version = state.pg_interface.generic_fetch(query).await?;
+
+    let logs: Vec<LogEntry> = raw_bytes_version
+    .into_iter()
+    .map(|raw| {
+        Ok(LogEntry {
+            seq: raw.seq,
+            epoch: raw.epoch,
+            kind: raw.kind,
+            payload: B64_ENGINE.encode(raw.payload),
+            created_at: raw.created_at,
+        })
+    })
+    .collect::<Result<Vec<LogEntry>, InternalError>>()?;
 
     let pin: Option<i64> = if logs.len() == 500
         && let Some(last_log) = logs.iter().next_back()
@@ -185,5 +173,68 @@ pub async fn get_group_logs(
         success: true,
         msg: String::new(),
         data: Some(LogsResp { logs, pin }),
+    });
+}
+
+pub async fn get_mailbox(
+    device: DsAccess,
+    seq: Option<Path<i64>>,
+    State(mut state): State<AppState>,
+) -> Result<Res<MailboxPage>, InternalError>{
+    let offset: i64 = if let Some(path) = seq && let Path(num) = path{
+        num
+    }
+    else {
+        0
+    };
+
+    let query = sqlx::query_as!(
+        RawMailboxItem,
+        r#"SELECT 
+    id, ord, kind AS "kind: MailboxKind", payload, recipient_device
+    FROM mailbox_items
+        WHERE ord > $1 AND recipient_user = $2
+        ORDER BY ord ASC
+        LIMIT 500"#,
+        offset,
+        device.user_id
+    );
+
+    let raw_bytes_version = state.pg_interface.generic_fetch(query).await?;
+
+    let mailbox_items: Vec<MailboxItem> = raw_bytes_version
+    .into_iter()
+    .map(|raw| {
+        Ok(MailboxItem {
+            id: raw.id,
+            kind: raw.kind,
+            payload: B64_ENGINE.encode(raw.payload),
+            ord: raw.ord,
+        })
+    })
+    .collect::<Result<Vec<MailboxItem>, InternalError>>()?;
+
+    let mut has_more = false;
+    if mailbox_items.len() > 500{
+        has_more = true;
+    }
+
+    let pin: Option<i64> = if mailbox_items.len() == 500
+        && let Some(last_log) = mailbox_items.iter().next_back()
+    {
+        Some(last_log.ord)
+    } else {
+        None
+    };
+
+    return Ok(Res {
+        status: StatusCode::OK,
+        success: true,
+        msg: String::new(),
+        data: Some(MailboxPage {
+            items: mailbox_items,
+            has_more: has_more,
+            pin: pin
+        }),
     });
 }
