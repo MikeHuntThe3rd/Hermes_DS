@@ -1,15 +1,12 @@
 use axum::extract::{Path, State};
 use base64::Engine;
-use fred::util::NONE;
 use reqwest::StatusCode;
 use serde::Serialize;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
-    axum_trait_impls::extractors::DsAccess,
-    responses::error_t::InternalError,
-    types::{AppState, B64_ENGINE, Group, Key_Package, LogKind, Res},
+    axum_trait_impls::extractors::DsAccess, responses::error_t::InternalError, types::{AppState, B64_ENGINE, Group, Key_Package, LogKind, LogicalOp, Res},
 };
 
 #[derive(Serialize)]
@@ -58,6 +55,7 @@ pub async fn get_key_pkgs(
                 &["user_id", "device_id"],
                 &[device.user_id, device.device_id],
             )),
+            LogicalOp::AND,
             None,
         )
         .await?;
@@ -87,7 +85,7 @@ pub async fn get_group_info(
 ) -> Result<Res<GroupInfoResp>, InternalError> {
     let group: Group = state
         .pg_interface
-        .select_one((&["id"], &[group_id]))
+        .select_one((&["id"], &[group_id]), LogicalOp::AND)
         .await?;
 
     return Ok(Res {

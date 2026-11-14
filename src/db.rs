@@ -1,5 +1,5 @@
 #![allow(warnings)]
-use std::ops::DerefMut;
+use std::{ops::DerefMut, vec};
 
 use crate::{responses::error_t::InternalError, types::*};
 use ed25519_dalek::pkcs8::Error::ParametersMalformed;
@@ -237,7 +237,7 @@ where
     ) -> Result<Vec<T>, InternalError>
     where
         Vec<I>: for<'v> Encode<'v, C::DB> + sqlx::Type<C::DB>,
-        I: for<'q> Encode<'q, C::DB> + sqlx::Type<C::DB>,
+        I: for<'q> Encode<'q, C::DB> + sqlx::Type<C::DB> + Copy,
         T: Bindable<C::DB> + for<'r> FromRow<'r, <C::DB as Database>::Row> + Send + Unpin,
     {
         let mut conn = self.connector.conn().await?;
@@ -265,10 +265,13 @@ where
                 sql.push(")");
             },
             LogicalOp::OR => {
+                let id_param_combination = Vec::from_fn(id_s.len(), |i| (id_s[i], param_s[i]));
                 let mut or_sepr = sql.separated(" OR ");
 
-                for param in param_s {
-                    or_sepr.push_bind(param);
+                for id_param in id_param_combination {
+                    or_sepr.push(id_param.0);
+                    or_sepr.push_unseparated(" = ");
+                    or_sepr.push_bind_unseparated(id_param.1);
                 }
             },
             LogicalOp::IN => {
@@ -291,26 +294,29 @@ where
         Ok(res)
     }
 
-    pub async fn select_one<I, T>(&mut self, id_s: (&[&str], &[I])) -> Result<T, InternalError>
+    pub async fn select_one<'i, I, T>(&mut self, id_s: (&[&str], &'i [I]), logic_type: LogicalOp) -> Result<T, InternalError>
     where
-        I: for<'q> Encode<'q, C::DB> + sqlx::Type<C::DB>,
+        I: for<'q> Encode<'q, C::DB> + sqlx::Type<C::DB> + Copy + 'i,
+        &'i [I]: for<'v> Encode<'v, C::DB> + sqlx::Type<C::DB>,
         T: Bindable<C::DB> + for<'r> FromRow<'r, <C::DB as Database>::Row> + Send + Unpin,
     {
         return self
-            .select_many(Some(id_s), Some(1))
+            .select_many(Some(id_s),logic_type, Some(1))
             .await?
             .into_iter()
             .next()
             .ok_or(InternalError::NoMatches);
     }
 
-    pub async fn select_many<I, T>(
+    pub async fn select_many<'i, I, T>(
         &mut self,
-        id_s: Option<(&[&str], &[I])>,
+        id_s: Option<(&[&str], &'i [I])>,
+        logic_type: LogicalOp,
         limit: Option<i32>,
     ) -> Result<Vec<T>, InternalError>
     where
-        I: for<'q> Encode<'q, C::DB> + sqlx::Type<C::DB>,
+        I: for<'q> Encode<'q, C::DB> + sqlx::Type<C::DB> + Copy + 'i,
+        &'i [I]: for<'v> Encode<'v, C::DB> + sqlx::Type<C::DB>,
         T: Bindable<C::DB> + for<'r> FromRow<'r, <C::DB as Database>::Row> + Send + Unpin,
     {
         let mut conn = self.connector.conn().await?;
@@ -319,33 +325,49 @@ where
         sql.push(T::table_name());
 
         if let Some(some_id_s) = id_s {
-            if some_id_s.0.len() != some_id_s.1.len() {
-                let _msg = sqlx::Error::InvalidArgument(
-                    "given tuple arrays have different sizes".to_string(),
-                );
-                return Err(InternalError::DbError);
+
+            sql.push(" WHERE ");
+
+            match logic_type {
+                LogicalOp::AND => {
+                    sql.push("(");
+
+                    let mut sepr = sql.separated(", ");
+                    for col in some_id_s.0 {
+                        sepr.push(col);
+                    }
+
+                    sql.push(") = (");
+
+                    let mut sepr = sql.separated(", ");
+                    for param in some_id_s.1 {
+                        sepr.push_bind(param);
+                        
+                    }
+
+                    sql.push(")");
+                },
+                LogicalOp::OR => {
+                    let id_param_combination = Vec::from_fn(some_id_s.0.len(), |i| (some_id_s.0[i], some_id_s.1[i]));
+                    let mut or_sepr = sql.separated(" OR ");
+
+                    for id_param in id_param_combination {
+                        or_sepr.push(id_param.0);
+                        or_sepr.push_unseparated(" = ");
+                        or_sepr.push_bind_unseparated(id_param.1);
+                    }
+                },
+                LogicalOp::IN => {
+                    let id = some_id_s.0.first().ok_or(InternalError::DbError)?;
+
+                    sql.push(id);
+                    sql.push(" = ANY(");
+                    sql.push_bind(some_id_s.1);
+                    sql.push(")");
+                },
             }
 
-            sql.push(" WHERE (");
 
-            let mut sepr = sql.separated(", ");
-            some_id_s.0.iter().for_each(|col| {
-                sepr.push(col);
-            });
-
-            sql.push(") = (");
-
-            let mut sepr = sql.separated(", ");
-            some_id_s.1.iter().for_each(|param| {
-                sepr.push_bind(param);
-            });
-
-            sql.push(") ORDER BY ");
-
-            let mut sepr = sql.separated(", ");
-            for id in some_id_s.0 {
-                sepr.push(T::table_name().to_string() + "." + id + " DESC");
-            }
         }
 
         if let Some(lm) = limit {
