@@ -5,7 +5,7 @@ use axum::{
     extract::{Path, State},
 };
 use base64::Engine;
-use reqwest::StatusCode;
+use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -387,7 +387,7 @@ pub async fn send_private_message(
     });
 }
 
-pub async fn deliver_mailbox(
+pub async fn deliver_mailbox_item(
     device: DsAccess,
     State(mut state): State<AppState>,
     Json(data): Json<MailboxInput>

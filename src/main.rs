@@ -26,8 +26,9 @@ use crate::{
     db::DbInterface,
     handlers::{
         get::*,
+        delete:: {delete_mailbox_item},
         post::{
-            claim_key_pkg, commit_proposals, create_group, push_proposal, send_private_message, deliver_mailbox
+            claim_key_pkg, commit_proposals, create_group, push_proposal, send_private_message, deliver_mailbox_item
         },
         put::*,
     },
@@ -111,7 +112,8 @@ async fn main() {
         .route("/{group_id}/message", post(send_private_message));
 
     let mailbox: Router<AppState> = Router::new()
-        .route("/", post(deliver_mailbox))
+        .route("/", post(deliver_mailbox_item))
+        .route("/mailbox/{item_id}", post(delete_mailbox_item))
         .route("/{seq}", get(get_mailbox));
 
     let api = Router::new()

@@ -2,7 +2,7 @@ use std::{collections::HashMap};
 
 use axum::extract::{Path, State};
 use base64::Engine;
-use reqwest::StatusCode;
+use axum::http::StatusCode;
 use serde::Serialize;
 use time::{OffsetDateTime};
 use uuid::Uuid;
