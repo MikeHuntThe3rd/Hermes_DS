@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
-    axum_trait_impls::extractors::DsAccess, responses::error_t::InternalError, types::{AppState, B64_ENGINE, Group, Key_Package, LogKind, Mailbox_Item, MailboxKind, Res},
+    axum_trait_impls::extractors::DsAccess, responses::error_t::InternalError, types::{AppState, B64_ENGINE, Group, Key_Package, LogKind, Mailbox_Item, MailboxKind, Mailbox_Ack, Res},
 };
 
 #[derive(Serialize)]
@@ -135,8 +135,8 @@ pub async fn get_group_logs(
 
     let query = sqlx::query_as!(
         LogEntryByteArray,
-        r#"SELECT 
-    seq, epoch, kind AS "kind: LogKind", payload, created_at 
+        r#"SELECT
+    seq, epoch, kind AS "kind: LogKind", payload, created_at
     FROM group_logs
         WHERE seq > $1 AND group_id = $2
         ORDER BY seq ASC
@@ -189,20 +189,48 @@ pub async fn get_mailbox(
     };
 
     let query = sqlx::query_as!(
-        RawMailboxItem,
-        r#"SELECT 
-    id, ord, kind AS "kind: MailboxKind", payload, recipient_device
-    FROM mailbox_items
-        WHERE ord > $1 AND recipient_user = $2
+        Mailbox_Item,
+        r#"
+        SELECT id, ord, recipient_user, recipient_device, kind AS "kind: MailboxKind", payload, sender_user, sender_device, created_at
+        FROM mailbox_items
+        WHERE recipient_user = $1
         ORDER BY ord ASC
-        LIMIT 500"#,
-        offset,
-        device.user_id
+        "#,
+        device.user_id,
     );
 
-    let raw_bytes_version = state.pg_interface.generic_fetch(query).await?;
+    let query2 = sqlx::query_as!(
+        Mailbox_Ack,
+        r#"
+            SELECT * FROM mailbox_acks
+        "#
+    );
 
-    let mailbox_items: Vec<MailboxItem> = raw_bytes_version
+    let all_items = state.pg_interface.generic_fetch(query).await?;
+    let all_acks = state.pg_interface.generic_fetch(query2).await?;
+
+    let mut returning_items: Vec<MailboxItem> = Vec::with_capacity(500);
+    let mut not_acknowledged_items: Vec<Mailbox_Item> = Vec::new();
+
+    for item in all_items{
+        if returning_items.len() < 500{
+            if let Some(device_id) = item.recipient_device{
+                if device_id == device.device_id{
+                    returning_items.push(MailboxItem {
+                        id: item.id, 
+                        kind: item.kind, 
+                        payload: B64_ENGINE.encode(item.payload), 
+                        ord: item.ord 
+                    });
+                }
+            }
+            else{
+                // acks szarok
+            }
+        }
+    }
+
+    let mailbox_items: Vec<MailboxItem> = returning_items
     .into_iter()
     .map(|raw| {
         Ok(MailboxItem {
