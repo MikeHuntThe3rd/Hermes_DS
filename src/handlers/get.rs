@@ -1,13 +1,14 @@
-use axum::extract::{Path, State, path};
+use std::{collections::HashMap};
+
+use axum::extract::{Path, State};
 use base64::Engine;
-use fred::util::NONE;
 use reqwest::StatusCode;
 use serde::Serialize;
-use time::OffsetDateTime;
+use time::{OffsetDateTime};
 use uuid::Uuid;
 
 use crate::{
-    axum_trait_impls::extractors::DsAccess, responses::error_t::InternalError, types::{AppState, B64_ENGINE, Group, Key_Package, LogKind, Mailbox_Item, MailboxKind, Mailbox_Ack, Res},
+    axum_trait_impls::extractors::DsAccess, responses::error_t::InternalError, types::{AppState, B64_ENGINE, Group, Key_Package, LogKind, Mailbox_Item, MailboxKind, Mailbox_Ack, Res, LogicalOp},
 };
 
 #[derive(Serialize)]
@@ -53,14 +54,6 @@ pub struct MailboxItem{
     pub ord: i64,
 }
 
-pub struct RawMailboxItem{
-    pub id: Uuid,
-    pub kind: MailboxKind,
-    pub payload: Vec<u8>,
-    pub ord: i64,
-    pub recipient_device: Option<Uuid>,
-}
-
 #[derive(Serialize)]
 pub struct MailboxPage{
     pub items: Vec<MailboxItem>,
@@ -79,6 +72,7 @@ pub async fn get_key_pkgs(
                 &["user_id", "device_id"],
                 &[device.user_id, device.device_id],
             )),
+            LogicalOp::AND,
             None,
         )
         .await?;
@@ -108,7 +102,7 @@ pub async fn get_group_info(
 ) -> Result<Res<GroupInfoResp>, InternalError> {
     let group: Group = state
         .pg_interface
-        .select_one((&["id"], &[group_id]))
+        .select_one((&["id"], &[group_id]), LogicalOp::AND)
         .await?;
 
     return Ok(Res {
@@ -193,9 +187,10 @@ pub async fn get_mailbox(
         r#"
         SELECT id, ord, recipient_user, recipient_device, kind AS "kind: MailboxKind", payload, sender_user, sender_device, created_at
         FROM mailbox_items
-        WHERE recipient_user = $1
+        WHERE ord > $1 AND recipient_user = $2
         ORDER BY ord ASC
         "#,
+        offset,
         device.user_id,
     );
 
@@ -209,42 +204,47 @@ pub async fn get_mailbox(
     let all_items = state.pg_interface.generic_fetch(query).await?;
     let all_acks = state.pg_interface.generic_fetch(query2).await?;
 
-    let mut returning_items: Vec<MailboxItem> = Vec::with_capacity(500);
-    let mut not_acknowledged_items: Vec<Mailbox_Item> = Vec::new();
+    let returning_items: Vec<MailboxItem> = Vec::with_capacity(500);
+    let mut not_acknowledged_items: Vec<Mailbox_Ack> = Vec::new();
+    let mut acks: HashMap<Uuid, Uuid> = HashMap::new();
 
+    for ack in all_acks{
+        acks.insert(ack.item_id, ack.device_id);
+    }
+    
     for item in all_items{
-        if returning_items.len() < 500{
-            if let Some(device_id) = item.recipient_device{
-                if device_id == device.device_id{
-                    returning_items.push(MailboxItem {
-                        id: item.id, 
-                        kind: item.kind, 
-                        payload: B64_ENGINE.encode(item.payload), 
-                        ord: item.ord 
-                    });
+        if returning_items.len() <= 500{
+            if item.recipient_user == device.user_id && !acks.contains_key(&item.recipient_user){
+                if let Some(device_id) = item.recipient_device{
+                    not_acknowledged_items.push(Mailbox_Ack { item_id:item.id, device_id: device_id, acked_at: OffsetDateTime::now_utc() });
+                }
+                else {
+                    not_acknowledged_items.push(Mailbox_Ack { item_id:item.id, device_id: device.device_id, acked_at: OffsetDateTime::now_utc() });
                 }
             }
-            else{
-                // acks szarok
-            }
         }
+        break;
     }
 
-    let mailbox_items: Vec<MailboxItem> = returning_items
+    state.pg_interface.insert_many(&not_acknowledged_items, crate::types::BindVal::ALL).await?;
+
+    let mut mailbox_items: Vec<MailboxItem> = returning_items
     .into_iter()
     .map(|raw| {
         Ok(MailboxItem {
             id: raw.id,
             kind: raw.kind,
-            payload: B64_ENGINE.encode(raw.payload),
+            payload: B64_ENGINE.encode(&raw.payload),
             ord: raw.ord,
         })
     })
     .collect::<Result<Vec<MailboxItem>, InternalError>>()?;
 
     let mut has_more = false;
+
     if mailbox_items.len() > 500{
         has_more = true;
+        mailbox_items.pop();
     }
 
     let pin: Option<i64> = if mailbox_items.len() == 500

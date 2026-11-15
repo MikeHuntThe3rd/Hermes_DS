@@ -93,7 +93,7 @@ pub async fn claim_key_pkg(
 ) -> Result<Res<Vec<KeyPkgsClaimElementResp>>, InternalError> {
     let user_device_pkgs: Vec<Key_Package> = state
         .pg_interface
-        .select_many(Some((&["user_id"], &[data.user_id])), None)
+        .select_many(Some((&["user_id"], &[data.user_id])),LogicalOp::AND, None)
         .await?;
 
     let mut key_pkgs: HashMap<Uuid, (Vec<u8>, bool, i64)> = HashMap::new();
@@ -182,7 +182,7 @@ pub async fn push_proposal(
 ) -> Result<Res<SeqEpochResp>, InternalError> {
     let group: Group = state
         .pg_interface
-        .select_one((&["id"], &[group_id]))
+        .select_one((&["id"], &[group_id]), LogicalOp::AND)
         .await?;
 
     let mut tr = state.pg_interface.begin_transaction().await?;
@@ -236,7 +236,7 @@ pub async fn commit_proposals(
 ) -> Result<Res<SeqEpochResp>, InternalError> {
     let current_group: Group = state
         .pg_interface
-        .select_one((&["id"], &[group_id]))
+        .select_one((&["id"], &[group_id]), LogicalOp::AND)
         .await?;
 
     if current_group.epoch != data.epoch {
@@ -340,7 +340,7 @@ pub async fn send_private_message(
 ) -> Result<Res<SeqEpochResp>, InternalError> {
     let current_group: Group = state
         .pg_interface
-        .select_one((&["id"], &[group_id]))
+        .select_one((&["id"], &[group_id]), LogicalOp::AND)
         .await?;
 
     let mut tr = state.pg_interface.begin_transaction().await?;
