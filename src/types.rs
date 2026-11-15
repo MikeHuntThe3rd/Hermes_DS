@@ -19,6 +19,7 @@ use x509_cert::serial_number;
 
 pub const KID_STR: &'static str = "kid:";
 
+pub const PLACE_HOLDER_BIG_SERIAL: i64 = 0;
 pub const PLACE_HOLDER_UUID: Uuid = Uuid::nil();
 pub const PLACE_HOLDER_TIME: OffsetDateTime = match OffsetDateTime::from_unix_timestamp(0) {
     Ok(k) => k,

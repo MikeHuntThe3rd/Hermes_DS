@@ -15,7 +15,7 @@ use crate::{
     responses::error_t::InternalError,
     types::{
         AppState, B64_ENGINE, BindVal, Group, Group_Log, Group_Member_Hint, Key_Package, LogKind,
-        LogicalOp, Mailbox_Item, MailboxKind, PLACE_HOLDER_TIME, PLACE_HOLDER_UUID, Res,
+        LogicalOp, Mailbox_Item, MailboxKind, PLACE_HOLDER_TIME, PLACE_HOLDER_UUID, PLACE_HOLDER_BIG_SERIAL, Res,
     },
 };
 
@@ -84,6 +84,14 @@ pub struct CommitInput {
 pub struct PrivateMessageInput {
     pub epoch: i64,
     pub ciphertext: String,
+}
+
+#[derive(Deserialize)]
+pub struct MailboxInput{
+    pub recipient_user: Uuid,
+    pub recipient_device: Option<Uuid>,
+    pub kind: MailboxKind,
+    pub payload: String,
 }
 
 pub async fn claim_key_pkg(
@@ -376,5 +384,32 @@ pub async fn send_private_message(
             seq: new_group_data.last_seq,
             epoch: new_group_data.epoch,
         }),
+    });
+}
+
+pub async fn deliver_mailbox(
+    device: DsAccess,
+    State(mut state): State<AppState>,
+    Json(data): Json<MailboxInput>
+) -> Result<Res<Uuid>, InternalError> {
+    let new_mailbox = state.pg_interface.insert_one(
+        Mailbox_Item{
+            id: PLACE_HOLDER_UUID,
+            ord: PLACE_HOLDER_BIG_SERIAL,
+            recipient_user: data.recipient_user, 
+            recipient_device: data.recipient_device,
+            kind: data.kind,
+            payload: B64_ENGINE.decode(data.payload).map_err(|_| InternalError::DecodeEncodeErr)?,
+            sender_device: device.device_id,
+            sender_user: device.user_id,
+            created_at: PLACE_HOLDER_TIME
+        },
+        BindVal::ND).await?;
+    
+    return Ok(Res{
+        status: StatusCode::OK,
+        success: true,
+        msg: String::new(),
+        data: Some(new_mailbox.id)
     });
 }

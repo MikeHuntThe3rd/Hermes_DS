@@ -8,7 +8,7 @@ use time::{OffsetDateTime};
 use uuid::Uuid;
 
 use crate::{
-    axum_trait_impls::extractors::DsAccess, responses::error_t::InternalError, types::{AppState, B64_ENGINE, Group, Key_Package, LogKind, Mailbox_Item, MailboxKind, Mailbox_Ack, Res, LogicalOp},
+    axum_trait_impls::extractors::DsAccess, responses::error_t::InternalError, types::{AppState, B64_ENGINE, Group, Key_Package, LogKind, LogicalOp, Mailbox_Ack, Mailbox_Item, MailboxKind, PLACE_HOLDER_TIME, Res},
 };
 
 #[derive(Serialize)]
@@ -216,7 +216,7 @@ pub async fn get_mailbox(
         if returning_items.len() <= 500{
             if item.recipient_user == device.user_id && !acks.contains_key(&item.recipient_user){
                 if let Some(device_id) = item.recipient_device{
-                    not_acknowledged_items.push(Mailbox_Ack { item_id:item.id, device_id: device_id, acked_at: OffsetDateTime::now_utc() });
+                    not_acknowledged_items.push(Mailbox_Ack { item_id:item.id, device_id: device_id, acked_at: PLACE_HOLDER_TIME});
                 }
                 else {
                     not_acknowledged_items.push(Mailbox_Ack { item_id:item.id, device_id: device.device_id, acked_at: OffsetDateTime::now_utc() });
@@ -226,7 +226,7 @@ pub async fn get_mailbox(
         break;
     }
 
-    state.pg_interface.insert_many(&not_acknowledged_items, crate::types::BindVal::ALL).await?;
+    state.pg_interface.insert_many(&not_acknowledged_items, crate::types::BindVal::ND).await?;
 
     let mut mailbox_items: Vec<MailboxItem> = returning_items
     .into_iter()
