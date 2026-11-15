@@ -1,0 +1,140 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, ord, recipient_user, recipient_device, kind AS \"kind: MailboxKind\", payload, sender_user, sender_device, created_at\n        FROM mailbox_items\n        WHERE ord > $1 AND recipient_user = $2\n        ORDER BY ord ASC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "mailbox_items",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "ord",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "mailbox_items",
+            "name": "ord"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "recipient_user",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "mailbox_items",
+            "name": "recipient_user"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "recipient_device",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "mailbox_items",
+            "name": "recipient_device"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "kind: MailboxKind",
+        "type_info": {
+          "Custom": {
+            "name": "mailbox_kind",
+            "kind": {
+              "Enum": [
+                "welcome",
+                "friend_request",
+                "friend_response",
+                "invite_accept",
+                "invite_decline",
+                "device_link",
+                "other"
+              ]
+            }
+          }
+        },
+        "origin": {
+          "Table": {
+            "table": "mailbox_items",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "payload",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "mailbox_items",
+            "name": "payload"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "sender_user",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "mailbox_items",
+            "name": "sender_user"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "sender_device",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "mailbox_items",
+            "name": "sender_device"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "mailbox_items",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "b5242f6862bb8404e42cc8667fd255be5e733ac314eb99f7be770fef0d5c460b"
+}
