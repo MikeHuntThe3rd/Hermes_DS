@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
+use axum::http::StatusCode;
 use axum::{
     Json,
     extract::{Path, State},
 };
 use base64::Engine;
-use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -15,7 +15,8 @@ use crate::{
     responses::error_t::InternalError,
     types::{
         AppState, B64_ENGINE, BindVal, Group, Group_Log, Group_Member_Hint, Key_Package, LogKind,
-        LogicalOp, Mailbox_Item, MailboxKind, PLACE_HOLDER_TIME, PLACE_HOLDER_UUID, Res,
+        LogicalOp, Mailbox_Item, MailboxKind, PLACE_HOLDER_BIG_SERIAL, PLACE_HOLDER_TIME,
+        PLACE_HOLDER_UUID, Res,
     },
 };
 
@@ -86,6 +87,14 @@ pub struct PrivateMessageInput {
     pub ciphertext: String,
 }
 
+#[derive(Deserialize)]
+pub struct MailboxInput {
+    pub recipient_user: Uuid,
+    pub recipient_device: Option<Uuid>,
+    pub kind: MailboxKind,
+    pub payload: String,
+}
+
 pub async fn claim_key_pkg(
     _device: DsAccess,
     State(mut state): State<AppState>,
@@ -93,7 +102,7 @@ pub async fn claim_key_pkg(
 ) -> Result<Res<Vec<KeyPkgsClaimElementResp>>, InternalError> {
     let user_device_pkgs: Vec<Key_Package> = state
         .pg_interface
-        .select_many(Some((&["user_id"], &[data.user_id])),LogicalOp::AND, None)
+        .select_many(Some((&["user_id"], &[data.user_id])), LogicalOp::AND, None)
         .await?;
 
     let mut key_pkgs: HashMap<Uuid, (Vec<u8>, bool, i64)> = HashMap::new();
@@ -146,8 +155,8 @@ pub async fn create_group(
     State(mut state): State<AppState>,
     Json(data): Json<NewGroupInput>,
 ) -> Result<Res<()>, InternalError> {
-    let group = state
-        .pg_interface
+    let mut tr = state.pg_interface.begin_transaction().await?;
+    let group = tr
         .insert_one(
             Group {
                 id: Uuid::new_v4(),
@@ -165,7 +174,28 @@ pub async fn create_group(
         )
         .await?;
 
-    //TODO: send member hints to mailboxes
+    let mut members_data: Vec<Group_Member_Hint> = data
+        .memeber_hints
+        .into_iter()
+        .map(|input| Group_Member_Hint {
+            group_id: group.id,
+            user_id: input.device_id,
+            device_id: input.device_id,
+            added_at: PLACE_HOLDER_TIME,
+        })
+        .collect();
+
+    members_data.push(Group_Member_Hint {
+        group_id: group.id,
+        user_id: device.user_id,
+        device_id: device.device_id,
+        added_at: PLACE_HOLDER_TIME,
+    });
+
+    tr.insert_many(&members_data, BindVal::ND).await?;
+
+    tr.commit().await?;
+
     return Ok(Res {
         status: StatusCode::OK,
         success: true,
@@ -376,5 +406,38 @@ pub async fn send_private_message(
             seq: new_group_data.last_seq,
             epoch: new_group_data.epoch,
         }),
+    });
+}
+
+pub async fn deliver_mailbox_item(
+    device: DsAccess,
+    State(mut state): State<AppState>,
+    Json(data): Json<MailboxInput>,
+) -> Result<Res<Uuid>, InternalError> {
+    let new_mailbox = state
+        .pg_interface
+        .insert_one(
+            Mailbox_Item {
+                id: PLACE_HOLDER_UUID,
+                ord: PLACE_HOLDER_BIG_SERIAL,
+                recipient_user: data.recipient_user,
+                recipient_device: data.recipient_device,
+                kind: data.kind,
+                payload: B64_ENGINE
+                    .decode(data.payload)
+                    .map_err(|_| InternalError::DecodeEncodeErr)?,
+                sender_device: device.device_id,
+                sender_user: device.user_id,
+                created_at: PLACE_HOLDER_TIME,
+            },
+            BindVal::ND,
+        )
+        .await?;
+
+    return Ok(Res {
+        status: StatusCode::OK,
+        success: true,
+        msg: String::new(),
+        data: Some(new_mailbox.id),
     });
 }

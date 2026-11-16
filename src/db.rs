@@ -233,7 +233,7 @@ where
         &mut self,
         id_s: &[&str],
         param_s: &Vec<I>,
-        op_type: LogicalOp
+        op_type: LogicalOp,
     ) -> Result<Vec<T>, InternalError>
     where
         Vec<I>: for<'v> Encode<'v, C::DB> + sqlx::Type<C::DB>,
@@ -243,8 +243,7 @@ where
         let mut conn = self.connector.conn().await?;
 
         let mut sql: QueryBuilder<C::DB> = QueryBuilder::new("DELETE FROM ");
-        sql.push(T::table_name())
-        .push(" WHERE ");
+        sql.push(T::table_name()).push(" WHERE ");
 
         match op_type {
             LogicalOp::AND => {
@@ -263,7 +262,7 @@ where
                 }
 
                 sql.push(")");
-            },
+            }
             LogicalOp::OR => {
                 let id_param_combination = Vec::from_fn(id_s.len(), |i| (id_s[i], param_s[i]));
                 let mut or_sepr = sql.separated(" OR ");
@@ -273,16 +272,21 @@ where
                     or_sepr.push_unseparated(" = ");
                     or_sepr.push_bind_unseparated(id_param.1);
                 }
-            },
+            }
             LogicalOp::IN => {
                 if let Some(id) = id_s.first() {
-                    sql.push(format!("{id} = ANY("));
-                    sql.push_bind(param_s);
+                    sql.push(format!("{id} IN ("));
+                    let mut sepr = sql.separated(", ");
+                    for param in param_s {
+                        sepr.push_bind(param);
+                    }
                     sql.push(")");
+                } else {
+                    return Err(InternalError::DbError);
                 }
-            },
+            }
         }
-      
+
         sql.push(" RETURNING *;");
 
         let mut query = sql.build_query_as::<T>();
@@ -294,14 +298,18 @@ where
         Ok(res)
     }
 
-    pub async fn select_one<'i, I, T>(&mut self, id_s: (&[&str], &'i [I]), logic_type: LogicalOp) -> Result<T, InternalError>
+    pub async fn select_one<'i, I, T>(
+        &mut self,
+        id_s: (&[&str], &'i [I]),
+        logic_type: LogicalOp,
+    ) -> Result<T, InternalError>
     where
         I: for<'q> Encode<'q, C::DB> + sqlx::Type<C::DB> + Copy + 'i,
         &'i [I]: for<'v> Encode<'v, C::DB> + sqlx::Type<C::DB>,
         T: Bindable<C::DB> + for<'r> FromRow<'r, <C::DB as Database>::Row> + Send + Unpin,
     {
         return self
-            .select_many(Some(id_s),logic_type, Some(1))
+            .select_many(Some(id_s), logic_type, Some(1))
             .await?
             .into_iter()
             .next()
@@ -325,7 +333,6 @@ where
         sql.push(T::table_name());
 
         if let Some(some_id_s) = id_s {
-
             sql.push(" WHERE ");
 
             match logic_type {
@@ -342,13 +349,13 @@ where
                     let mut sepr = sql.separated(", ");
                     for param in some_id_s.1 {
                         sepr.push_bind(param);
-                        
                     }
 
                     sql.push(")");
-                },
+                }
                 LogicalOp::OR => {
-                    let id_param_combination = Vec::from_fn(some_id_s.0.len(), |i| (some_id_s.0[i], some_id_s.1[i]));
+                    let id_param_combination =
+                        Vec::from_fn(some_id_s.0.len(), |i| (some_id_s.0[i], some_id_s.1[i]));
                     let mut or_sepr = sql.separated(" OR ");
 
                     for id_param in id_param_combination {
@@ -356,18 +363,18 @@ where
                         or_sepr.push_unseparated(" = ");
                         or_sepr.push_bind_unseparated(id_param.1);
                     }
-                },
+                }
                 LogicalOp::IN => {
                     let id = some_id_s.0.first().ok_or(InternalError::DbError)?;
 
-                    sql.push(id);
-                    sql.push(" = ANY(");
-                    sql.push_bind(some_id_s.1);
+                    sql.push(format!("{id} IN ("));
+                    let mut sepr = sql.separated(", ");
+                    for param in some_id_s.1 {
+                        sql.push_bind(param);
+                    }
                     sql.push(")");
-                },
+                }
             }
-
-
         }
 
         if let Some(lm) = limit {
