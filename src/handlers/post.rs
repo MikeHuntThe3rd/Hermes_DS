@@ -9,7 +9,9 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
+use x509_cert::builder::profile::devid;
 
+use crate::types::Group_Info;
 use crate::{
     axum_trait_impls::extractors::DsAccess,
     responses::error_t::InternalError,
@@ -55,6 +57,11 @@ pub struct GroupProposalInput {
 pub struct SeqEpochResp {
     pub seq: i64,
     pub epoch: i64,
+}
+
+#[derive(Serialize)]
+pub struct SeqResp {
+    pub seq: i64,
 }
 
 #[derive(Deserialize)]
@@ -159,20 +166,31 @@ pub async fn create_group(
     let group = tr
         .insert_one(
             Group {
-                id: Uuid::new_v4(),
-                epoch: 0,
-                groupinfo: B64_ENGINE
-                    .decode(data.group_info)
-                    .map_err(|_| InternalError::DecodeEncodeErr)?,
-                last_seq: 0,
+                id: data.id,
+                latest_seq: 0,
                 created_by_user: device.user_id,
                 created_by_device: device.device_id,
                 created_at: PLACE_HOLDER_TIME,
-                updated_at: PLACE_HOLDER_TIME,
             },
             BindVal::ND,
         )
         .await?;
+
+    tr.insert_one::<Group_Info>(
+        Group_Info {
+            group_id: group.id,
+            seq: 0,
+            epoch: 0,
+            groupinfo: B64_ENGINE
+                .decode(data.group_info)
+                .map_err(|_| InternalError::DecodeEncodeErr)?,
+            submitted_by_user: device.user_id,
+            submitted_by_device: device.device_id,
+            created_at: PLACE_HOLDER_TIME,
+        },
+        BindVal::ND,
+    )
+    .await?;
 
     let mut members_data: Vec<Group_Member_Hint> = data
         .memeber_hints
@@ -205,7 +223,7 @@ pub async fn create_group(
 }
 
 pub async fn push_proposal(
-    _device: DsAccess,
+    device: DsAccess,
     State(mut state): State<AppState>,
     Path(group_id): Path<Uuid>,
     Json(data): Json<GroupProposalInput>,
@@ -220,8 +238,11 @@ pub async fn push_proposal(
     let log = tr
         .insert_one(
             Group_Log {
+                id: PLACE_HOLDER_BIG_SERIAL,
+                submitted_by_user: device.user_id,
+                submitted_by_device: device.device_id,
                 group_id: group_id,
-                seq: group.last_seq + 1,
+                seq: group.latest_seq + 1,
                 epoch: data.epoch,
                 kind: LogKind::Proposal,
                 payload: B64_ENGINE
@@ -235,13 +256,10 @@ pub async fn push_proposal(
 
     tr.update_one(Group {
         id: group.id,
-        epoch: group.epoch,
-        groupinfo: group.groupinfo,
-        last_seq: log.seq,
         created_by_user: group.created_by_user,
         created_by_device: group.created_by_device,
+        latest_seq: group.latest_seq + 1,
         created_at: group.created_at,
-        updated_at: group.updated_at,
     })
     .await?;
 
@@ -258,7 +276,7 @@ pub async fn push_proposal(
     });
 }
 
-pub async fn commit_proposals(
+pub async fn commit(
     device: DsAccess,
     State(mut state): State<AppState>,
     Path(group_id): Path<Uuid>,
@@ -269,17 +287,16 @@ pub async fn commit_proposals(
         .select_one((&["id"], &[group_id]), LogicalOp::AND)
         .await?;
 
-    if current_group.epoch != data.epoch {
-        return Err(InternalError::MismatchedEpoch);
-    }
-
     let mut tr = state.pg_interface.begin_transaction().await?;
 
     let commit = tr
         .insert_one(
             Group_Log {
+                id: PLACE_HOLDER_BIG_SERIAL,
+                submitted_by_user: device.user_id,
+                submitted_by_device: device.device_id,
                 group_id: group_id,
-                seq: current_group.last_seq + 1,
+                seq: current_group.latest_seq + 1,
                 epoch: data.epoch,
                 kind: LogKind::Commit,
                 payload: B64_ENGINE
@@ -291,19 +308,26 @@ pub async fn commit_proposals(
         )
         .await?;
 
-    let new_group = tr
-        .update_one(Group {
-            id: group_id,
-            epoch: current_group.epoch + 1,
-            groupinfo: B64_ENGINE
-                .decode(data.group_info)
-                .map_err(|_| InternalError::DecodeEncodeErr)?,
-            last_seq: commit.seq,
-            created_by_user: current_group.created_by_user,
-            created_by_device: current_group.created_by_device,
-            created_at: current_group.created_at,
-            updated_at: OffsetDateTime::now_utc(),
-        })
+    let mut new_group_data = current_group;
+    new_group_data.latest_seq = commit.seq;
+
+    let new_group = tr.update_one(new_group_data).await?;
+
+    let new_group_info = tr
+        .insert_one(
+            Group_Info {
+                group_id,
+                seq: commit.seq,
+                epoch: commit.epoch,
+                groupinfo: B64_ENGINE
+                    .decode(data.group_info)
+                    .map_err(|_| InternalError::DecodeEncodeErr)?,
+                submitted_by_user: device.user_id,
+                submitted_by_device: device.device_id,
+                created_at: PLACE_HOLDER_TIME,
+            },
+            BindVal::ND,
+        )
         .await?;
 
     let member_removals_query = sqlx::query!(
@@ -330,7 +354,8 @@ pub async fn commit_proposals(
         .map(|welcome| {
             Ok(Mailbox_Item {
                 id: PLACE_HOLDER_UUID,
-                ord: 0,
+                ord: PLACE_HOLDER_BIG_SERIAL,
+                commit_id: Some(commit.id),
                 recipient_user: welcome.recipient_user,
                 recipient_device: None,
                 kind: MailboxKind::Welcome,
@@ -356,18 +381,18 @@ pub async fn commit_proposals(
         success: true,
         msg: String::new(),
         data: Some(SeqEpochResp {
-            seq: new_group.last_seq,
-            epoch: new_group.epoch,
+            seq: new_group.latest_seq,
+            epoch: new_group_info.epoch,
         }),
     });
 }
 
 pub async fn send_private_message(
-    _device: DsAccess,
+    device: DsAccess,
     State(mut state): State<AppState>,
     Path(group_id): Path<Uuid>,
     Json(data): Json<PrivateMessageInput>,
-) -> Result<Res<SeqEpochResp>, InternalError> {
+) -> Result<Res<SeqResp>, InternalError> {
     let current_group: Group = state
         .pg_interface
         .select_one((&["id"], &[group_id]), LogicalOp::AND)
@@ -376,14 +401,16 @@ pub async fn send_private_message(
     let mut tr = state.pg_interface.begin_transaction().await?;
 
     let mut new_group_data = current_group;
-    new_group_data.last_seq += 1;
-    new_group_data.updated_at = OffsetDateTime::now_utc();
+    new_group_data.latest_seq += 1;
 
     tr.insert_one(
         Group_Log {
+            id: PLACE_HOLDER_BIG_SERIAL,
+            submitted_by_user: device.user_id,
+            submitted_by_device: device.device_id,
             group_id: group_id,
-            seq: new_group_data.last_seq,
-            epoch: new_group_data.epoch,
+            seq: new_group_data.latest_seq,
+            epoch: data.epoch,
             kind: LogKind::Application,
             payload: B64_ENGINE
                 .decode(data.ciphertext)
@@ -402,9 +429,8 @@ pub async fn send_private_message(
         status: StatusCode::OK,
         success: true,
         msg: String::new(),
-        data: Some(SeqEpochResp {
-            seq: new_group_data.last_seq,
-            epoch: new_group_data.epoch,
+        data: Some(SeqResp {
+            seq: new_group_data.latest_seq,
         }),
     });
 }
@@ -420,6 +446,7 @@ pub async fn deliver_mailbox_item(
             Mailbox_Item {
                 id: PLACE_HOLDER_UUID,
                 ord: PLACE_HOLDER_BIG_SERIAL,
+                commit_id: None,
                 recipient_user: data.recipient_user,
                 recipient_device: data.recipient_device,
                 kind: data.kind,

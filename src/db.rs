@@ -237,7 +237,7 @@ where
     ) -> Result<Vec<T>, InternalError>
     where
         Vec<I>: for<'v> Encode<'v, C::DB> + sqlx::Type<C::DB>,
-        I: for<'q> Encode<'q, C::DB> + sqlx::Type<C::DB> + Copy,
+        I: for<'q> Encode<'q, C::DB> + sqlx::Type<C::DB> + Clone,
         T: Bindable<C::DB> + for<'r> FromRow<'r, <C::DB as Database>::Row> + Send + Unpin,
     {
         let mut conn = self.connector.conn().await?;
@@ -264,7 +264,8 @@ where
                 sql.push(")");
             }
             LogicalOp::OR => {
-                let id_param_combination = Vec::from_fn(id_s.len(), |i| (id_s[i], param_s[i]));
+                let id_param_combination =
+                    Vec::from_fn(id_s.len(), |i| (id_s[i], param_s[i].clone()));
                 let mut or_sepr = sql.separated(" OR ");
 
                 for id_param in id_param_combination {
@@ -304,7 +305,7 @@ where
         logic_type: LogicalOp,
     ) -> Result<T, InternalError>
     where
-        I: for<'q> Encode<'q, C::DB> + sqlx::Type<C::DB> + Copy + 'i,
+        I: for<'q> Encode<'q, C::DB> + sqlx::Type<C::DB> + Clone + 'i,
         &'i [I]: for<'v> Encode<'v, C::DB> + sqlx::Type<C::DB>,
         T: Bindable<C::DB> + for<'r> FromRow<'r, <C::DB as Database>::Row> + Send + Unpin,
     {
@@ -323,7 +324,7 @@ where
         limit: Option<i32>,
     ) -> Result<Vec<T>, InternalError>
     where
-        I: for<'q> Encode<'q, C::DB> + sqlx::Type<C::DB> + Copy + 'i,
+        I: for<'q> Encode<'q, C::DB> + sqlx::Type<C::DB> + Clone + 'i,
         &'i [I]: for<'v> Encode<'v, C::DB> + sqlx::Type<C::DB>,
         T: Bindable<C::DB> + for<'r> FromRow<'r, <C::DB as Database>::Row> + Send + Unpin,
     {
@@ -354,8 +355,9 @@ where
                     sql.push(")");
                 }
                 LogicalOp::OR => {
-                    let id_param_combination =
-                        Vec::from_fn(some_id_s.0.len(), |i| (some_id_s.0[i], some_id_s.1[i]));
+                    let id_param_combination = Vec::from_fn(some_id_s.0.len(), |i| {
+                        (some_id_s.0[i], some_id_s.1[i].clone())
+                    });
                     let mut or_sepr = sql.separated(" OR ");
 
                     for id_param in id_param_combination {

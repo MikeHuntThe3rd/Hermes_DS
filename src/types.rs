@@ -133,17 +133,26 @@ pub struct Key_Package {
 #[ids = "id"]
 pub struct Group {
     pub id: Uuid,
-    pub epoch: i64,
-    pub groupinfo: Vec<u8>,
-    pub last_seq: i64,
+    pub latest_seq: i64,
     pub created_by_user: Uuid,
     pub created_by_device: Uuid,
     #[serde(with = "time::serde::timestamp")]
     #[has_default]
     pub created_at: OffsetDateTime,
+}
+
+#[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
+#[ids = "group_id;seq"]
+pub struct Group_Info {
+    pub group_id: Uuid,
+    pub seq: i64,
+    pub epoch: i64,
+    pub groupinfo: Vec<u8>,
+    pub submitted_by_user: Uuid,
+    pub submitted_by_device: Uuid,
     #[serde(with = "time::serde::timestamp")]
     #[has_default]
-    pub updated_at: OffsetDateTime,
+    pub created_at: OffsetDateTime,
 }
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
@@ -158,13 +167,17 @@ pub struct Group_Member_Hint {
 }
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
-#[ids = "group_id;seq"]
+#[ids = "id"]
 pub struct Group_Log {
+    #[has_default]
+    pub id: i64,
     pub group_id: Uuid,
     pub seq: i64,
     pub epoch: i64,
     pub kind: LogKind,
     pub payload: Vec<u8>,
+    pub submitted_by_user: Uuid,
+    pub submitted_by_device: Uuid,
     #[serde(with = "time::serde::timestamp")]
     #[has_default]
     pub created_at: OffsetDateTime,
@@ -183,6 +196,7 @@ pub struct Mailbox_Item {
     pub payload: Vec<u8>,
     pub sender_user: Uuid,
     pub sender_device: Uuid,
+    pub commit_id: Option<i64>,
     #[serde(with = "time::serde::timestamp")]
     #[has_default]
     pub created_at: OffsetDateTime,
@@ -217,6 +231,7 @@ pub struct Blob {
     #[has_default]
     pub status: BlobStatus,
 }
+
 #[derive(Clone)]
 pub struct AppState {
     pub http_client: reqwest::Client,

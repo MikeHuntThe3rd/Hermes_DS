@@ -1,12 +1,13 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use base64::Engine;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::types::Group_Info;
 use crate::{
     axum_trait_impls::extractors::DsAccess,
     responses::error_t::InternalError,
@@ -24,8 +25,20 @@ pub struct PkgsResp {
 
 #[derive(Serialize)]
 pub struct GroupInfoResp {
+    pub infos: Vec<GroupInfoElement>,
+    pub pin: Option<i64>,
+}
+#[derive(Serialize)]
+pub struct GroupInfoElement {
+    pub seq: i64,
     pub epoch: i64,
     pub group_info: String,
+}
+
+#[derive(Deserialize)]
+pub struct GroupFromPaths {
+    pub group_id: Uuid,
+    pub from: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -102,52 +115,78 @@ pub async fn get_key_pkgs(
 pub async fn get_group_info(
     _device: DsAccess,
     State(mut state): State<AppState>,
-    Path(group_id): Path<Uuid>,
+    Path(paths): Path<GroupFromPaths>,
 ) -> Result<Res<GroupInfoResp>, InternalError> {
-    let group: Group = state
+    let pin = if let Some(from) = paths.from { from } else { 0 };
+
+    struct RawInfos {
+        pub seq: i64,
+        pub epoch: i64,
+        pub groupinfo: Vec<u8>,
+    }
+
+    let group_infos_raw_query = sqlx::query_as!(
+        RawInfos,
+        "SELECT seq, epoch, groupinfo
+        FROM group_infos 
+        WHERE group_id = $1 AND seq >= $2 
+        ORDER BY seq ASC LIMIT 501",
+        paths.group_id,
+        pin
+    );
+
+    let group_infos_raw = state
         .pg_interface
-        .select_one((&["id"], &[group_id]), LogicalOp::AND)
+        .generic_fetch(group_infos_raw_query)
         .await?;
+
+    let mut res_vec: Vec<GroupInfoElement> = group_infos_raw
+        .into_iter()
+        .map(|raw| GroupInfoElement {
+            seq: raw.seq,
+            epoch: raw.epoch,
+            group_info: B64_ENGINE.encode(raw.groupinfo),
+        })
+        .collect();
+
+    let next_pin = if res_vec.len() == 501 {
+        Some(res_vec.pop().ok_or(InternalError::NoMatches)?.seq)
+    } else {
+        None
+    };
 
     return Ok(Res {
         status: StatusCode::OK,
         success: true,
         msg: String::new(),
         data: Some(GroupInfoResp {
-            epoch: group.epoch,
-            group_info: B64_ENGINE.encode(group.groupinfo),
+            infos: res_vec,
+            pin: next_pin,
         }),
     });
 }
 
 pub async fn get_group_logs(
-    Path(group_id): Path<Uuid>,
-    seq: Option<Path<i64>>,
+    Path(paths): Path<GroupFromPaths>,
     State(mut state): State<AppState>,
 ) -> Result<Res<LogsResp>, InternalError> {
-    let offset: i64 = if let Some(path) = seq
-        && let Path(num) = path
-    {
-        num
-    } else {
-        0
-    };
+    let pin: i64 = if let Some(from) = paths.from { from } else { 0 };
 
     let query = sqlx::query_as!(
         LogEntryByteArray,
         r#"SELECT
-    seq, epoch, kind AS "kind: LogKind", payload, created_at
-    FROM group_logs
-        WHERE seq > $1 AND group_id = $2
+        seq, epoch, kind AS "kind: LogKind", payload, created_at
+        FROM group_logs
+        WHERE seq >= $1 AND group_id = $2
         ORDER BY seq ASC
-        LIMIT 500"#,
-        offset,
-        group_id
+        LIMIT 501"#,
+        pin,
+        paths.group_id
     );
 
     let raw_bytes_version = state.pg_interface.generic_fetch(query).await?;
 
-    let logs: Vec<LogEntry> = raw_bytes_version
+    let mut logs: Vec<LogEntry> = raw_bytes_version
         .into_iter()
         .map(|raw| {
             Ok(LogEntry {
@@ -160,10 +199,8 @@ pub async fn get_group_logs(
         })
         .collect::<Result<Vec<LogEntry>, InternalError>>()?;
 
-    let pin: Option<i64> = if logs.len() == 500
-        && let Some(last_log) = logs.iter().next_back()
-    {
-        Some(last_log.seq)
+    let pin: Option<i64> = if logs.len() == 501 {
+        Some(logs.pop().ok_or(InternalError::NoMatches)?.seq)
     } else {
         None
     };
@@ -192,9 +229,11 @@ pub async fn get_mailbox(
     let items_query = sqlx::query_as!(
         Mailbox_Item,
         r#"
-        SELECT id, ord, recipient_user, recipient_device, kind AS "kind: MailboxKind", payload, sender_user, sender_device, created_at
+        SELECT 
+        id, ord, commit_id, recipient_user, recipient_device, kind AS "kind: MailboxKind",
+        payload, sender_user, sender_device, created_at
         FROM mailbox_items
-        WHERE ord > $1 AND recipient_user = $2
+        WHERE ord >= $1 AND recipient_user = $2
         ORDER BY ord ASC
         "#,
         offset,

@@ -28,7 +28,7 @@ use crate::{
         delete::delete_mailbox_item,
         get::*,
         post::{
-            claim_key_pkg, commit_proposals, create_group, deliver_mailbox_item, push_proposal,
+            claim_key_pkg, commit, create_group, deliver_mailbox_item, push_proposal,
             send_private_message,
         },
         put::*,
@@ -107,15 +107,18 @@ async fn main() {
     let groups: Router<AppState> = Router::new()
         .route("/", post(create_group))
         .route("/{group_id}/groupinfo", get(get_group_info))
-        .route("/{group_id}/logs/{seq}", get(get_group_logs))
+        .route("/{group_id}/groupinfo/{from}", get(get_group_info))
+        .route("/{group_id}/logs/", get(get_group_logs))
+        .route("/{group_id}/logs/{from}", get(get_group_logs))
         .route("/{group_id}/proposal", post(push_proposal))
-        .route("/{group_id}/commit", post(commit_proposals))
+        .route("/{group_id}/commit", post(commit))
         .route("/{group_id}/message", post(send_private_message));
 
     let mailbox: Router<AppState> = Router::new()
         .route("/", post(deliver_mailbox_item))
-        .route("/mailbox/{item_id}", post(delete_mailbox_item))
-        .route("/{seq}", get(get_mailbox));
+        .route("/{item_id}", delete(delete_mailbox_item))
+        .route("/dump", get(get_mailbox))
+        .route("/dump/{seq}", get(get_mailbox));
 
     let api = Router::new()
         .nest("/keypkgs", key_pkgs)
