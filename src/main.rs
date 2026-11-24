@@ -4,12 +4,12 @@ mod handlers;
 mod responses;
 mod types;
 
-use std::{env, time::Duration, vec};
+use std::time::Duration;
 
 use axum::{
     Router,
-    http::{Method, StatusCode, header},
-    routing::{delete, get, patch, post, put},
+    http::{Method, header},
+    routing::{delete, get, post, put},
 };
 
 use fred::{
@@ -124,6 +124,7 @@ async fn main() {
         .nest("/keypkgs", key_pkgs)
         .nest("/group", groups)
         .nest("/mailbox", mailbox)
+        .route("/info", get(info))
         .layer(cors)
         .with_state(state);
 

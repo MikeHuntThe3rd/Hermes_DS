@@ -78,6 +78,12 @@ pub struct MailboxPage {
     pub pin: Option<i64>,
 }
 
+#[derive(Serialize)]
+pub struct DsInfo {
+    pub name: String,
+    pub max_key_pkgs: u8,
+}
+
 pub async fn get_key_pkgs(
     device: DsAccess,
     State(mut state): State<AppState>,
@@ -305,4 +311,16 @@ pub async fn get_mailbox(
             pin: pin,
         }),
     });
+}
+
+pub async fn info() -> Res<DsInfo> {
+    return Res {
+        status: StatusCode::OK,
+        success: true,
+        msg: String::new(),
+        data: Some(DsInfo {
+            name: String::from("placeholder"),
+            max_key_pkgs: 10,
+        }),
+    };
 }
